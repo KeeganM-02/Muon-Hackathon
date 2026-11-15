@@ -67,31 +67,38 @@ simply did not contain the change, with a clean build log.
 
 ## Flash
 
+**Address the C6 by its USB identity, never by `ttyACM` number.** The three
+serial devices on this board renumber themselves on every replug, and writing
+esptool frames into the wrong one fails in the most misleading way available:
+the RP2040's USB CDC accepts the bytes and the flash tool sits waiting for a
+response that will never come, reporting "invalid segment length 0xffffffff",
+write timeouts, or an erase that never completes. It reads exactly like a dead
+board. It is not.
+
 ```sh
-CCACHE_DISABLE=1 idf.py -B build -p /dev/ttyACM2 flash
-idf.py -B build -p /dev/ttyACM2 monitor
+export C6=/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_E4:B3:23:A6:06:5C-if00
+CCACHE_DISABLE=1 idf.py -B build -p "$C6" flash
+idf.py -B build -p "$C6" monitor
 ```
 
-`/dev/ttyACM2` is the C6's own USB-Serial/JTAG port (`usb-Espressif_USB_JTAG_*`
-in `/dev/serial/by-id/`). No button, no bootloader dance.
-
-**Do not let anything assert both DTR and RTS on this port** — on the C6's
-USB-Serial/JTAG that is the esptool download strap, and the board reboots into
-the bootloader instead of running. A raw pyserial reader must set
-`s.dtr = False; s.rts = False`.
+Check with `ls /dev/serial/by-id/` first: the C6 is `usb-Espressif_USB_JTAG_*`,
+the two RP2040s are `usb-FreeWili_OG_FWOG_{main,display}_*`. If the C6 identity
+is missing, the board is not the problem you think it is.
 
 A healthy boot:
 
 ```
-I (312) roomnode: fwog room node: room 1, qr https://main.d24j7edplzktpl.amplifyapp.com/r/1
-I (312) roomnode: api http://api.example.invalid/v1 (via proxy 192.168.49.1)
+I (312) roomnode: room 1 via https://6526ig971l.execute-api.us-east-2.amazonaws.com (proxy 192.168.49.1:8228)
 I (318) link: link up: uart0 tx=16 rx=17 115200 baud
-I (560) wifi: got ip:192.168.49.194
+I (560) wifi: got ip:192.168.49.194 gw:192.168.49.1 mask:255.255.255.0
+I (570) wifi: dns main:192.168.49.1
 I (610) link: main CPU booted: roomnode-main
-W (2600) api: GET .../rooms/1 -> 401 PLACEHOLDER-COGNITO-ID-TOKEN
+I (3358) api: GET /device/rooms/1 -> 200 free
 ```
 
-The 401 is the token placeholder doing what it says on the tin.
+The first request can fail with `connect(...) failed: errno 118` if the API
+loop starts before DHCP finishes. That is expected and self-correcting: the
+next poll, five seconds later, succeeds.
 
 ## Tests
 
@@ -102,11 +109,18 @@ tested from the host tree instead of by flashing:
 cd .. && python3 tools/fw.py test        # 41 CTest binaries + 197 fw.py tests
 ```
 
-`tests/test_jhelp.c` asserts the real `GET /rooms/1` body parses, that a key
+`tests/test_jhelp.c` asserts the real room GET body parses, that a key
 appearing only as another key's *value* does not match, that a nested `alert`
 object neither leaks into the top level nor gets lost, and that truncated
 buffers and malformed input fail instead of overrunning.
 
-Nothing in this project has been observed on hardware yet: the board dropped
-off USB during bring-up and had not re-enumerated when this was written. Build
-verified; behaviour unverified.
+## Verification status
+
+Observed on hardware: Wi-Fi association and DHCP, the proxy `CONNECT` tunnel,
+TLS validation against the bundle, an authenticated `GET /device/rooms/1`
+answering `200`, a presence POST answering `200`, `Date`-header clock sync, and
+`status` / `net` / `time` frames arriving on the main CPU.
+
+Not verified: the `servo` and `alert` response fields (the service has not
+emitted them), `/end` against the live service, and the USB mock console
+commands. See `../docs/roomnode-api-handoff.md`.
