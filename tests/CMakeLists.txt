@@ -50,13 +50,12 @@ fwog_add_test(test_uart_baud ${BSP}/common/link/link_uart.c)
 
 target_compile_definitions(test_uart_baud PRIVATE FWOG_LINK_BAUD=12500000u)
 
-# The ESP32-C6 room node's JSON reader. It lives in the ESP-IDF project, but it
-# is plain C with no IDF headers -- and it is the piece that decides whether the
-# display says "reserved" or "unknown", so its edge cases belong here.
-fwog_add_test(test_jhelp
-    ${CMAKE_CURRENT_SOURCE_DIR}/../esp32-roomnode/main/jhelp.c)
-target_include_directories(test_jhelp PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/../esp32-roomnode/main)
+# The room node's JSON reader. Shared by both firmwares: the C6 parses the API's
+# responses with it and the main CPU parses the C6's messages, so it lives in
+# bsp/common/json and its edge cases are tested here. It is the piece that
+# decides whether the display says "reserved" or "unknown".
+fwog_add_test(test_jhelp ${BSP}/common/json/jhelp.c)
+target_include_directories(test_jhelp PRIVATE ${BSP}/common/json)
 
 fwog_add_test(test_bl_protocol
     ${BSP}/common/crc.c ${BSP}/common/app_meta.c
