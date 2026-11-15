@@ -9,19 +9,18 @@ Design and the cross-CPU contract: [`../docs/roomnode.md`](../docs/roomnode.md).
 ## What it does
 
 - Wi-Fi station, retrying forever.
-- **Link to the main CPU** on UART0 (GPIO16 TX / GPIO17 RX, 3 Mbaud, JSON lines
-  — see `roomnode_config.h`). RX only, in practice: presence in, commands out.
-- **Polls `GET {API_BASE}/rooms/1`** every `POLL_MS`, forwards `state`,
-  `expires_at`, `next_res_start` to the main CPU when they change, and forwards
-  a `servo` angle or an `alert` banner when the backend sends one.
-- **Publishes presence**: `claim` when a body appears in a free room,
-  `checkin` when one appears in a held/reserved room, `end` after
-  `ABSENT_TIMEOUT_S` of no presence.
+- **Link to the main CPU** on UART0 (GPIO16 TX / GPIO17 RX, 115200 baud,
+  JSON lines — see `roomnode_config.h`).
+- **Polls `GET {API_BASE}/device/rooms/1`** every `POLL_MS`, forwarding
+  `state`, `url`, `expires_at`, and `next_res_start` to the main CPU. A `servo`
+  target or `alert` banner is also forwarded if the backend supplies one.
+- **Reports observed presence** as a boolean on each transition and every 60
+  seconds. The service, not the device, decides what that observation means.
 - **Wall clock**: the `Date:` header of any response becomes an epoch the main
   CPU can use, because neither RP2040 has a trustworthy clock.
 
 Console is on **USB Serial/JTAG** (the ESP32's own USB port), deliberately not
-on UART0 — UART0 is the 3 Mbaud protocol wire, and one log line on it would
+on UART0 — UART0 is the 115200-baud protocol wire, and one log line on it would
 corrupt a JSON message.
 
 ## Configure
@@ -32,32 +31,26 @@ Everything lives in `main/roomnode_config.h`:
 | --- | --- |
 | `WIFI_SSID` / `WIFI_PASSWORD` | station credentials |
 | `USE_PROXY` | 1 = route everything through `PROXY_HOST:PROXY_PORT` (bench default), 0 = direct |
-| `API_BASE` | **placeholder** `http://api.example.invalid/v1` until the real gateway exists |
-| `API_TOKEN` | **placeholder** Cognito ID token — provisioned, see the caveat below |
+| `API_BASE` | HTTPS API gateway base URL |
+| `DEVICE_KEY` | value sent in `x-device-key` |
 | `ROOM_ID` | `"1"` |
-| `QR_URL` | the reservation link the display encodes |
-| `POLL_MS`, `ABSENT_TIMEOUT_S` | heartbeat period, and how long "empty" must last |
+| `POLL_MS` | room-state poll interval |
 
 ### The proxy
 
 `USE_PROXY 1` is the **bench default**: this network has no direct route out.
-Requests become absolute-URI `GET http://host:port/path` on a raw socket to the
-proxy, which is what a forward proxy expects.
+`net.c` opens an HTTP `CONNECT` tunnel to the proxy and then performs normal TLS
+to the API host. The proxy also resolves the hostname because the tether does
+not provide a working resolver.
 
-Only `http://` is proxied this way. An `https://` API through a proxy needs a
-`CONNECT` tunnel, which this client does not implement — it logs
-`only http:// is supported` and fails visibly rather than hanging. That is a
-deliberate gap for the placeholder stage; fill it when the real AWS host is
-known, or run the device on a network with a direct route.
+Set `USE_PROXY 0` on a network with direct DNS and HTTPS egress.
 
-### The token caveat
+### Device credential
 
-`API_TOKEN` is a compile-time placeholder. The device cannot run a Cognito
-login flow, so the token has to be **provisioned** — pushed over the UART link
-from the main CPU, or issued by a device-credentials grant the backend adds.
-Until then, every call carries the placeholder string and the API answers 401.
-That is expected, and the display shows it as a "not logged in" banner rather
-than pretending the room is free.
+The room fixture authenticates with `x-device-key`, not a Cognito user token.
+The development default is replaceable from the ignored
+`main/roomnode_secrets.h`; production provisioning and rotation remain an API
+team decision.
 
 ## Build
 
@@ -92,7 +85,7 @@ A healthy boot:
 ```
 I (312) roomnode: fwog room node: room 1, qr https://main.d24j7edplzktpl.amplifyapp.com/r/1
 I (312) roomnode: api http://api.example.invalid/v1 (via proxy 192.168.49.1)
-I (318) link: link up: uart0 tx=16 rx=17 3000000 baud
+I (318) link: link up: uart0 tx=16 rx=17 115200 baud
 I (560) wifi: got ip:192.168.49.194
 I (610) link: main CPU booted: roomnode-main
 W (2600) api: GET .../rooms/1 -> 401 PLACEHOLDER-COGNITO-ID-TOKEN
