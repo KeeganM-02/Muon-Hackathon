@@ -51,6 +51,9 @@ FWOG_POWER_DEFAULT();
 #define PRES_Y    72u
 #define HOLD_Y   110u
 #define WHO_Y    148u
+/* Widest of the three countdown labels, so the row erases itself when the room
+ * moves between states. 15 columns is 90 px at scale 1, well inside LEFT_W. */
+#define HOLD_LABEL_COLS 15u
 #define BAR_Y    164u
 #define BAR_H     40u
 #define RAW_Y    204u    /* just below the alert bar */
@@ -306,13 +309,19 @@ static void paint_hold(const room_frame_t *f) {
         format_duration((uint32_t)f->hold_left_s, left, sizeof left);
     }
 
+    /* The label says what the number means, and for a reservation that is an
+     * instruction rather than a fact: "starts in" told a person the room was
+     * booked, not what they were supposed to do about it. The countdown behind
+     * it is next_res_start - now (see main's push_display), i.e. the window in
+     * which somebody has to be in the room before the booking takes it. */
     const char *label = "hold left";
     if (f->state == ROOM_RESERVED) {
-        label = "starts in";
+        label = "check in within";
     } else if (f->state == ROOM_WARN) {
         label = "ends in";
     }
-    lcd_text_draw_padded(8u, HOLD_Y, have ? label : "", 9u, 1u, COL_DIM, COL_BG);
+    lcd_text_draw_padded(8u, HOLD_Y, have ? label : "", HOLD_LABEL_COLS, 1u,
+                         COL_DIM, COL_BG);
     lcd_text_draw_padded(8u, HOLD_Y + 10u, left, 8u, 3u,
                          state_colour((room_state_t)f->state), COL_BG);
 }

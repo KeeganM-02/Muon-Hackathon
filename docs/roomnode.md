@@ -67,7 +67,7 @@ on the RP2040s, where a custom firmware is not going to reflash itself mid-demo.
 | --- | --- | --- |
 | `free` | green `FREE` + QR to reserve | locked |
 | `held` | blue `IN USE` + countdown to `expires_at` | locked |
-| `reserved` | amber `RESERVED` + countdown to `next_res_start` | locked |
+| `reserved` | amber `RESERVED`, then `check in within` + countdown to `next_res_start` | locked |
 | `warn` | red `ENDING` + countdown, double-beep on entry and at 5 s left | locked/unlocked per command |
 | absent/unknown | gray `UNKNOWN` | locked |
 

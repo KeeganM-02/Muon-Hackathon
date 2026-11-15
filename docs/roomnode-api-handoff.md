@@ -166,7 +166,7 @@ transitions locally.
 | --- | --- | --- |
 | `free` | Green `FREE`, reservation QR | No end action |
 | `held` | Blue `IN USE`, future `expires_at` countdown | End available |
-| `reserved` | Amber `RESERVED`, future `next_res_start` countdown | No end action |
+| `reserved` | Amber `RESERVED`, then `check in within` + future `next_res_start` countdown | No end action |
 | `warn` | Red `ENDING`, future `expires_at` countdown, one short beep on entry | End available |
 | absent/unknown/invalid | Gray `UNKNOWN` | No end action |
 
