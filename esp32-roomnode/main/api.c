@@ -275,6 +275,20 @@ void rn_api_note_presence(bool present) {
     ESP_LOGI(TAG, "sensor presence %s", present ? "began" : "ended");
 }
 
+/* main rebooted, so nothing it was told survives. Invalidate the caches that
+ * exist to avoid repeating ourselves -- above all the servo, because main comes
+ * up locked: if the service says unlocked and the cache still matches, the door
+ * would stay locked until the service happened to change its mind. */
+void rn_api_note_main_boot(void) {
+    s_last_servo = -1;
+    s_last_state = RN_ST_UNKNOWN;
+    s_last_expires = -1;
+    s_last_next_res = -1;
+    s_last_alert[0] = '\0';
+    s_offline_lock_sent = false;
+    ESP_LOGI(TAG, "main rebooted: re-sending service state on the next poll");
+}
+
 void rn_api_end(void) {
     if (s_mock_active) {
         s_mock_state = RN_ST_FREE;

@@ -205,6 +205,13 @@ Either CPU can reboot without the other noticing badly:
 - main heartbeats its presence belief every 5 s, and the **C6 rebuilds its belief
   from that heartbeat** after either side restarts. Without it, a main reboot
   leaves the backend convinced of a stale occupancy.
+- Hardware state dies with the CPU too, and the C6 caches what it has already
+  told main to avoid repeating itself. On main's boot line those caches are
+  invalidated and the service state is re-sent on the next poll. The servo is the
+  one that matters: main comes up locked, so with a cache that still matched, a
+  service asking for *unlocked* would leave the door locked until it happened to
+  change its mind. The same class of divergence is why leaving the device
+  exerciser re-asserts the service's last servo position.
 - The C6 reports presence on **change and again every 5 s**. One dropped POST
   must not be able to look like an empty room, because absence is what ends the
   session.

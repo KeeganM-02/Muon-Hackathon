@@ -16,6 +16,7 @@ static const char *TAG = "link";
 #define LINK_LINE_MAX 448
 
 static rn_presence_cb_t s_presence_cb;
+static rn_link_cb_t     s_boot_cb;
 static rn_link_cb_t     s_end_cb;
 static rn_link_stats_t  s_stats;
 
@@ -87,6 +88,7 @@ void rn_link_init(void) {
 
 void rn_link_on_presence(rn_presence_cb_t cb) { s_presence_cb = cb; }
 void rn_link_on_end(rn_link_cb_t cb) { s_end_cb = cb; }
+void rn_link_on_boot(rn_link_cb_t cb) { s_boot_cb = cb; }
 
 void rn_link_status(const char *state, const char *holder, const char *url,
                     int64_t expires_at, int64_t next_res_start) {
@@ -166,6 +168,9 @@ static void handle_line(char *line) {
         char fw[32] = "?";
         jh_string(line, "fw", fw, sizeof fw);
         ESP_LOGI(TAG, "main CPU booted: %s", fw);
+        if (s_boot_cb != NULL) {
+            s_boot_cb();
+        }
     } else {
         ESP_LOGD(TAG, "ignoring type %s", type);
     }

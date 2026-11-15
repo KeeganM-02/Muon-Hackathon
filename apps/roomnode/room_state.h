@@ -48,6 +48,11 @@ typedef enum {
     ROOM_ACTION_END = 1,
     ROOM_ACTION_TEST_SERVO_LOCK = 2,
     ROOM_ACTION_TEST_SERVO_UNLOCK = 3,
+    /* Put the door back where the service last put it. The servo tests above
+     * overwrite that position and nothing else would ever restore it: the C6
+     * only sends a command when the service's value *changes*, so a stale test
+     * position could stand indefinitely. Sent when the exerciser is exited. */
+    ROOM_ACTION_SERVO_RESTORE = 4,
 } room_action_id_t;
 
 typedef struct __attribute__((packed)) {

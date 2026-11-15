@@ -56,6 +56,11 @@ typedef struct {
     bool     confirming;
     bool     sensor_ok;
 
+    /* The last position the service commanded, kept because the servo tests in
+     * the exerciser overwrite it and the C6 only re-sends on a change. */
+    int      servo_api_percent;
+    bool     servo_api_valid;
+
     char     alert[48];
     uint8_t  alert_level;
 
@@ -206,7 +211,7 @@ static fwog_link_rx_t s_display_rx;
 /* Display buttons are deliberately commands, not state mutations. Main relays
  * the request to the network CPU; the next API poll remains the source of truth
  * for what state the room actually entered. */
-static void poll_display_actions(void) {
+static void poll_display_actions(node_t *n) {
     uint8_t byte;
     while (fwog_link_uart_read(&byte)) {
         size_t len = 0u;
@@ -232,6 +237,18 @@ static void poll_display_actions(void) {
         } else if (action.action == ROOM_ACTION_TEST_SERVO_UNLOCK) {
             servo_set_percent(90);
             DIAG("[roomnode] local test: servo unlocked (90%%)\n");
+        } else if (action.action == ROOM_ACTION_SERVO_RESTORE) {
+            /* Leaving the exerciser. Without this the door stays at whatever
+             * the servo test left it at until the service happens to change its
+             * own value, which it may never do. */
+            if (n->servo_api_valid) {
+                servo_set_percent(n->servo_api_percent);
+                DIAG("[roomnode] servo restored to api %d%%\n",
+                     n->servo_api_percent);
+            } else {
+                DIAG("[roomnode] servo restore: no api value yet, left at %d%%\n",
+                     servo_percent());
+            }
         }
     }
 }
@@ -273,7 +290,7 @@ int main(void) {
         /* Drain the link every iteration: a status line that sits in the FIFO
          * while we sleep is a display that lags the room. */
         esp_link_poll(&in);
-        poll_display_actions();
+        poll_display_actions(&n);
 
         if (in.time_valid) {
             clock_sync(&n, in.epoch);
@@ -281,6 +298,8 @@ int main(void) {
         }
 
         if (in.servo_valid) {
+            n.servo_api_percent = in.servo_percent;
+            n.servo_api_valid = true;
             servo_set_percent(in.servo_percent);
             DIAG("[roomnode] servo -> %d%% (%d us pulse)\n",
                  servo_percent(), SERVO_US_LOCKED + (SERVO_TRAVEL_US * servo_percent()) / 100);

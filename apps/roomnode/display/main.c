@@ -648,6 +648,12 @@ static void init_beep(void) {
 }
 
 static void set_view(ui_view_t view) {
+    if (s_view == UI_TEST_MENU && view != UI_TEST_MENU) {
+        /* Leaving the exerciser. Whatever the servo tests left the door at is
+         * not what the service asked for, and main is the only half that knows
+         * what that was. */
+        send_action(ROOM_ACTION_SERVO_RESTORE);
+    }
     s_view = view;
     s_view_dirty = true;
     s_view_fresh = true;

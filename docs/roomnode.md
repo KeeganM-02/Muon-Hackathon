@@ -122,7 +122,11 @@ Rules: unknown keys ignored; unknown `t` ignored; a malformed line is dropped
 Fixed-size packed frame (`room_frame_t`, `apps/roomnode/room_state.h`), pushed
 on change and as a 500 ms heartbeat — 100 ms while either presence timer is
 running, because a 600 ms window sampled at 2 Hz is a single frame — plus a
-display → main action frame for the End button and the servo exerciser:
+display → main action frame for the End button and the servo exerciser. The
+exerciser's servo tests move the horn directly, so leaving the menu sends a
+`SERVO_RESTORE` action: main re-applies the last position the service commanded,
+which nothing else would do, because the C6 only sends a command when the
+service's own value changes:
 
 ```c
 typedef struct __attribute__((packed)) {

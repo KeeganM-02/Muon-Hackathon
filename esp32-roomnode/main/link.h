@@ -24,6 +24,10 @@ void rn_link_init(void);
 /* Called from the link task when the main CPU reports a presence change. */
 void rn_link_on_presence(rn_presence_cb_t cb);
 void rn_link_on_end(rn_link_cb_t cb);
+/* Called when the main CPU announces a boot. Everything main believed died
+ * with it, including the servo position, so anything the C6 thinks it has
+ * already told main is no longer true. */
+void rn_link_on_boot(rn_link_cb_t cb);
 
 /* Outbound. All of these are called from the API task; the UART driver
  * serialises writes internally, and a torn line is not possible below the

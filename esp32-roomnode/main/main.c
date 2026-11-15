@@ -42,6 +42,7 @@ void app_main(void) {
     rn_link_init();
     rn_link_on_presence(rn_api_note_presence);
     rn_link_on_end(rn_api_end);
+    rn_link_on_boot(rn_api_note_main_boot);
     xTaskCreate(&rn_link_task, "link", 4096, NULL, 6, NULL);
 
     rn_wifi_start();
