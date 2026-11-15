@@ -29,7 +29,7 @@ FWOG_WATCHDOG_DEFAULT();
 /* Presence sampling. The sensor is slow by design (a room-scale IR array does
  * not report a heartbeat); 5 Hz costs nothing and makes the debounce honest. */
 #define SAMPLE_MS            200u
-#define PRESENT_HOLD_MS      30000u   /* how long one motion event counts for */
+#define PRESENT_HOLD_MS      10000u   /* how long one motion event counts for */
 #define PRESENT_CONFIRM_MS   600u     /* 3 samples before believing a body */
 
 #define DISPLAY_PERIOD_MS    500u
@@ -56,7 +56,16 @@ typedef struct {
      * these three numbers are what tells the two apart on the bench. */
     uint8_t  func_status;
     int16_t  tpresence;
+    int16_t  tpres_delta;
+    int16_t  tpres_base;
     int16_t  tamb_raw;
+    int16_t  tobj_raw;
+    int16_t  tobj_comp;
+
+    /* Frame sends, counted so a link that has silently stopped can be told
+     * apart from one the display has stopped reading. */
+    uint32_t frames_sent;
+    uint32_t frames_fail;
 } node_t;
 
 /* One direction word for the whole app. The display, breakout I2C0 and UART1
@@ -104,7 +113,7 @@ static int64_t clock_now(const node_t *n) {
     return n->epoch + (int64_t)(elapsed / 1000u);
 }
 
-static void push_display(const node_t *n, const esp_link_in_t *in) {
+static void push_display(node_t *n, const esp_link_in_t *in) {
     room_frame_t f;
     memset(&f, 0, sizeof f);
     f.version = ROOM_STATE_VERSION;
@@ -114,11 +123,12 @@ static void push_display(const node_t *n, const esp_link_in_t *in) {
     f.sensor_ok = n->sensor_ok ? 1u : 0u;
     f.alert_level = n->alert_level;
     f.tpresence = n->tpresence;
+    f.tpres_delta = n->tpres_delta;
     f.tamb_raw = n->tamb_raw;
     f.func_status = n->func_status;
     snprintf(f.alert, sizeof f.alert, "%s", n->alert);
     snprintf(f.holder, sizeof f.holder, "%s", in->holder);
-    snprintf(f.qr_url, sizeof f.qr_url, "%s", ROOM_QR_URL);
+    snprintf(f.qr_url, sizeof f.qr_url, "%s", in->qr_url);
 
     if (n->present) {
         f.elapsed_s = (to_ms_since_boot(get_absolute_time()) - n->present_since_ms) / 1000u;
@@ -128,15 +138,63 @@ static void push_display(const node_t *n, const esp_link_in_t *in) {
      * which is what the display renders as a dash rather than "0:00". */
     f.hold_left_s = -1;
     const int64_t now = clock_now(n);
-    if (now > 0 && in->status_valid && in->expires_at > 0 &&
-        (in->state == ROOM_HELD || in->state == ROOM_RESERVED || in->state == ROOM_WARN)) {
-        f.hold_left_s = (int32_t)(in->expires_at - now);
+    f.epoch = now;
+    if (now > 0 && in->status_valid) {
+        int64_t deadline = 0;
+        if ((in->state == ROOM_HELD || in->state == ROOM_WARN) &&
+            in->expires_at > now) {
+            deadline = in->expires_at;
+        } else if (in->state == ROOM_RESERVED && in->next_res_start > now) {
+            deadline = in->next_res_start;
+        }
+        if (deadline > 0) {
+            f.hold_left_s = (int32_t)(deadline - now);
+        }
     }
 
     uint8_t payload[1u + sizeof f];
     payload[0] = ROOM_MSG_STATE;
     memcpy(payload + 1, &f, sizeof f);
-    (void)fwog_link_uart_send_frame(payload, sizeof payload);
+    if (fwog_link_uart_send_frame(payload, sizeof payload)) {
+        n->frames_sent++;
+    } else {
+        n->frames_fail++;
+    }
+}
+
+static fwog_link_rx_t s_display_rx;
+
+/* Display buttons are deliberately commands, not state mutations. Main relays
+ * the request to the network CPU; the next API poll remains the source of truth
+ * for what state the room actually entered. */
+static void poll_display_actions(void) {
+    uint8_t byte;
+    while (fwog_link_uart_read(&byte)) {
+        size_t len = 0u;
+        if (!fwog_link_rx_byte(&s_display_rx, byte, &len)) {
+            continue;
+        }
+        if (len != 1u + sizeof(room_action_t) ||
+            s_display_rx.buf[0] != ROOM_MSG_ACTION) {
+            continue;
+        }
+
+        room_action_t action;
+        memcpy(&action, s_display_rx.buf + 1, sizeof action);
+        if (action.version != ROOM_STATE_VERSION) {
+            continue;
+        }
+        if (action.action == ROOM_ACTION_END) {
+            esp_link_send_end();
+            DIAG("[roomnode] end requested from display\n");
+        } else if (action.action == ROOM_ACTION_TEST_SERVO_LOCK) {
+            servo_set_percent(0);
+            DIAG("[roomnode] local test: servo locked (0%%)\n");
+        } else if (action.action == ROOM_ACTION_TEST_SERVO_UNLOCK) {
+            servo_set_percent(90);
+            DIAG("[roomnode] local test: servo unlocked (90%%)\n");
+        }
+    }
 }
 
 int main(void) {
@@ -157,6 +215,7 @@ int main(void) {
 
     esp_link_in_t in;
     memset(&in, 0, sizeof in);
+    fwog_link_rx_init(&s_display_rx);
 
     DIAG("[roomnode] fw %s: pads=%d link=%d sensor=%d display=%s\n",
          FW_VERSION_STR, pads_ok, link_ok, n.sensor_ok,
@@ -175,6 +234,7 @@ int main(void) {
         /* Drain the link every iteration: a status line that sits in the FIFO
          * while we sleep is a display that lags the room. */
         esp_link_poll(&in);
+        poll_display_actions();
 
         if (in.time_valid) {
             clock_sync(&n, in.epoch);
@@ -202,7 +262,11 @@ int main(void) {
             n.sensor_ok = s.ok;
             n.func_status = s.func_status;
             n.tpresence = s.tpresence;
+            n.tpres_delta = s.tpres_delta;
+            n.tpres_base = s.tpres_base;
             n.tamb_raw = s.tamb_raw;
+            n.tobj_raw = s.tobj_raw;
+            n.tobj_comp = s.tobj_comp;
 
             if (s.ok) {
                 if (s.motion) {
@@ -253,15 +317,39 @@ int main(void) {
              * the difference between a diagnostic and a decoration. */
             const esp_link_in_t *i = &in;
             DIAG("[roomnode] up=%us present=%d sensor=%d func=0x%02X tpres=%d "
-                 "tamb=%d servo=%d%% state=%u net=%d epoch=%lld\n",
+                 "tamb=%d servo=%d%% state=%u net=%d epoch=%lld "
+                 "sent=%lu fail=%lu\n",
                  (unsigned)((now - boot_ms) / 1000u), n.present ? 1 : 0,
                  n.sensor_ok ? 1 : 0, n.func_status, n.tpresence, n.tamb_raw,
                  servo_percent(), (unsigned)i->state,
-                 i->net_valid && i->net_up ? 1 : 0, (long long)i->epoch);
+                 i->net_valid && i->net_up ? 1 : 0, (long long)i->epoch,
+                 (unsigned long)n.frames_sent, (unsigned long)n.frames_fail);
+
+            DIAG("[roomnode] c6rx bytes=%lu lines=%lu bad=%lu long=%lu "
+                 "err=0x%02X rxpin=%d status=%lu net=%lu time=%lu other=%lu "
+                 "valid=%d/%d\n",
+                 (unsigned long)i->rx_bytes, (unsigned long)i->rx_lines,
+                 (unsigned long)i->rx_malformed,
+                 (unsigned long)i->rx_overlong, i->rx_error_flags,
+                 gpio_get(PIN_IO_UART_RX) ? 1 : 0,
+                 (unsigned long)i->rx_status, (unsigned long)i->rx_net,
+                 (unsigned long)i->rx_time, (unsigned long)i->rx_other,
+                 i->status_valid ? 1 : 0, i->net_valid ? 1 : 0);
+
+            /* The whole raw picture on one line. tpresence is what the verdict
+             * uses, but tobj/tamb/tobj_comp are what explain a value that
+             * drifts: tpresence tracks the ambient with a lag, so a room that
+             * is warming or cooling shows up here and nowhere else. */
+            DIAG("[roomnode] raw tobj=%d tamb=%d comp=%d tpres=%d base=%d "
+                 "d=%d flags=0x%02X\n",
+                 n.tobj_raw, n.tamb_raw, n.tobj_comp, n.tpresence,
+                 n.tpres_base, n.tpres_delta, n.func_status);
         }
 
-        /* The loop is sample-rate limited; sleeping keeps the watchdog kick
-         * honest and leaves the USB stack and the link room to breathe. */
-        sleep_ms(20);
+        /* Keep UART1 below its 32-byte FIFO depth. At 115200 baud the C6's
+         * net/status/time burst can add about 12 bytes per millisecond; the old
+         * 20 ms sleep guaranteed an overrun before the next poll. Presence
+         * sampling remains independently scheduled at SAMPLE_MS. */
+        sleep_ms(1);
     }
 }
