@@ -60,9 +60,10 @@
 /* The QR destination comes only from the room GET response's `url` field. */
 
 /* ---- Timing ---------------------------------------------------------
- * The guide asks for a GET every 5 s. That poll is also how servo and alert
- * commands would arrive, so it is the latency of every other behaviour here. */
-#define POLL_MS         5000
+ * The guide asks for a GET every 5 s; this runs at 1 s because that poll is
+ * also how servo and alert commands arrive, so it is the latency of every other
+ * behaviour here, and 1 request/s is well inside what the endpoint tolerates. */
+#define POLL_MS         1000
 #define WIFI_RETRY_MS   5000
 
 /* Fail secure independently of display state: after this long without a
@@ -70,8 +71,9 @@
 #define OFFLINE_LOCK_MS 60000
 
 /* Presence is re-posted on every change AND this often, so one dropped POST
- * cannot make the server conclude the room is empty. The guide says 60 s. */
-#define PRESENCE_RESEND_MS  60000
+ * cannot make the server conclude the room is empty. The guide says 60 s; 5 s
+ * costs one small POST per poll and makes a lost one invisible. */
+#define PRESENCE_RESEND_MS  5000
 
 /* Presence debounce and absence hold are enforced by the main RP2040; the C6
  * receives only the resulting boolean belief. */

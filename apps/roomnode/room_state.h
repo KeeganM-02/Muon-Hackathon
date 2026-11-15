@@ -13,7 +13,18 @@
 
 #define ROOM_MSG_STATE     0x51u
 #define ROOM_MSG_ACTION    0x52u
-#define ROOM_STATE_VERSION 4u
+#define ROOM_STATE_VERSION 5u
+
+/* The two windows in which the presence verdict is still undecided. main owns
+ * both timers -- they are policy, and this CPU is not allowed policy -- so it
+ * reports how far through them it is and the display draws the progress. The
+ * display therefore never needs to know the window lengths, only the fraction
+ * it is handed. */
+typedef enum {
+    ROOM_PRES_STEADY = 0,   /* nothing pending; draw no progress */
+    ROOM_PRES_ENTERING = 1, /* confirmation window: this may become present */
+    ROOM_PRES_EXITING = 2,  /* hold window: this may become absent */
+} room_pres_phase_t;
 
 typedef enum {
     ROOM_FREE = 0,
@@ -61,7 +72,8 @@ typedef struct __attribute__((packed)) {
     int16_t  tamb_raw;
     int16_t  tpres_delta;   /* excursion above the tracked empty-room floor */
     uint8_t  func_status;   /* PRES_FLAG | MOT_FLAG | TAMB_SHOCK_FLAG */
-    uint8_t  pad0;
+    uint8_t  pres_phase;    /* room_pres_phase_t */
+    uint8_t  pres_percent;  /* 0..100 through that window, 0 when steady */
     char     alert[48];     /* reason text, empty when none */
     char     holder[32];    /* who holds it, empty when nobody */
     char     qr_url[192];   /* service URL; empty draws no QR at all */

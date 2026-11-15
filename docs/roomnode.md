@@ -115,12 +115,13 @@ Rules: unknown keys ignored; unknown `t` ignored; a malformed line is dropped
 ### main ↔ display (UART0, `fwog_link`)
 
 Fixed-size packed frame (`room_frame_t`, `apps/roomnode/room_state.h`), pushed
-on change and as a 500 ms heartbeat, plus a display → main action frame for the
-End button and the servo exerciser:
+on change and as a 500 ms heartbeat — 100 ms while either presence timer is
+running, because a 600 ms window sampled at 2 Hz is a single frame — plus a
+display → main action frame for the End button and the servo exerciser:
 
 ```c
 typedef struct __attribute__((packed)) {
-    uint8_t  version;       /* ROOM_STATE_VERSION, currently 4 */
+    uint8_t  version;       /* ROOM_STATE_VERSION, currently 5 */
     uint8_t  state;         /* room_state_t */
     uint8_t  present;       /* sensor says a body is here */
     uint8_t  net_up;        /* C6 could reach the API */
@@ -134,7 +135,8 @@ typedef struct __attribute__((packed)) {
     int16_t  tamb_raw;
     int16_t  tpres_delta;   /* excursion above the tracked empty-room floor */
     uint8_t  func_status;   /* PRES_FLAG | MOT_FLAG | TAMB_SHOCK_FLAG */
-    uint8_t  pad0;
+    uint8_t  pres_phase;    /* room_pres_phase_t: steady | entering | exiting */
+    uint8_t  pres_percent;  /* 0..100 through that window, 0 when steady */
     char     alert[48];     /* reason text, empty when none */
     char     holder[32];
     char     qr_url[192];   /* service URL; empty draws no QR */
@@ -144,6 +146,22 @@ typedef struct __attribute__((packed)) {
 `version` and the payload length are checked before a byte is trusted: a
 mismatch between two separately-flashed halves must show as "wrong firmware",
 never as garbage on the panel.
+
+### The corner pie
+
+`pres_phase`/`pres_percent` drive a 14 px sector in the bottom-right corner:
+green while main is inside the 600 ms confirmation window (it may conclude
+somebody arrived), amber while it is inside the 10 s absence hold (it may
+conclude the room emptied). Both windows are otherwise invisible — a panel that
+looks the same at 0.1 s and 9.9 s into a hold gives nobody anything to tune or
+to trust.
+
+The display debounces it, which is a presentation decision and therefore its
+own: an exit phase must persist 2 s before it is drawn, an entry phase 200 ms,
+and an active pie is held 600 ms past the timer so one stray sample cannot blink
+it off. Without that the indicator strobes once per sample whenever somebody sits
+still and fidgets, since every sub-threshold sample restarts the hold from zero.
+The URL line is capped at 46 columns to keep the corner clear.
 
 ## API contract
 
@@ -162,8 +180,8 @@ Calls the device makes:
 
 | Call | When |
 | --- | --- |
-| `GET /device/rooms/1` | every 5 s; this is the heartbeat |
-| `POST /device/rooms/1/presence` `{"present":bool}` | on a local belief change, and every 60 s |
+| `GET /device/rooms/1` | every 1 s; this is the heartbeat |
+| `POST /device/rooms/1/presence` `{"present":bool}` | on a local belief change, and every 5 s |
 | `POST /device/rooms/1/end` | only from the display's End action, and only in `held`/`warn` |
 
 The GET response is the whole device vocabulary — `state`, `url`, `holder`,

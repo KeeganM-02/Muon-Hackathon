@@ -109,7 +109,7 @@ or
 **Implemented**
 
 - Post immediately when the local presence belief changes.
-- Repeat the current value every **60 seconds**.
+- Repeat the current value every **5 seconds**.
 - Reconstruct the C6's belief from main's five-second heartbeat after a C6
   reboot, then post if the service-facing value differs.
 - Apply the full successful presence response immediately, including state,
@@ -262,7 +262,7 @@ that session.
 | Main -> C6 heartbeat | 5 s |
 | API GET poll | 5 s after the preceding request cycle |
 | Wi-Fi reconnect delay | 5 s |
-| Presence reminder POST | 60 s |
+| Presence reminder POST | 5 s |
 | Offline forced lock | 60 s since last successful GET |
 | End-request acknowledgement screen | 1.5 s |
 | Ending-state sound | double-beep on entry and once at 5 s remaining |

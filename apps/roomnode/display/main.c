@@ -18,6 +18,7 @@
 #include "fwog_display.h"
 #include "pico/stdlib.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -55,6 +56,22 @@ FWOG_POWER_DEFAULT();
 #define RAW_Y    204u    /* just below the alert bar */
 #define FLAG_Y   214u
 #define URL_Y    226u
+
+/* Presence timing pie, bottom-right corner. Sits right of the URL row (which
+ * is capped at 46 columns for it) and clear of the alert bar, which ends at
+ * y 204. */
+/* Nothing here is drawn the instant main says a timer started. With nobody
+ * moving, every sample below the threshold restarts the hold, so a raw
+ * transition indicator blinks on and off once per sample and reads as a fault
+ * rather than as progress. Both edges need a minimum dwell, and the hide is
+ * held briefly so a single stray sample cannot blink it off. */
+#define PIE_ENTER_MS 200u    /* the whole window is 600 ms; don't lag it */
+#define PIE_SHOW_MS  2000u   /* the hold runs 10 s; a fifth of the way in */
+#define PIE_HOLD_MS  600u
+
+#define PIE_X 300u
+#define PIE_Y 214u
+#define PIE_D 14u
 
 #define QR_X  170u
 #define QR_Y   16u
@@ -104,6 +121,13 @@ static uint8_t s_beep[BEEP_SAMPLES];
  * it displays has changed. */
 static room_frame_t s_drawn;
 static bool         s_painted_any;
+
+/* What the corner is showing, what main last asked for, and when it changed
+ * its mind -- see PIE_SHOW_MS. */
+static uint8_t  s_pie_phase;
+static uint8_t  s_pie_percent;
+static uint8_t  s_pie_want;
+static uint32_t s_pie_want_since_ms;
 
 static uint16_t state_colour(room_state_t st) {
     switch (st) {
@@ -353,9 +377,11 @@ static void paint_status_footer(void) {
 }
 
 static void paint_url(const room_frame_t *f) {
+    /* 46 columns, not the full 52 the row could hold: the presence pie owns
+     * the bottom-right corner and a padded draw that reaches it erases it. */
     lcd_text_draw_padded(8u, URL_Y,
                          f->qr_url[0] ? f->qr_url : "URL unavailable",
-                         53u, 1u, f->qr_url[0] ? COL_BLUE : COL_AMBER, COL_BG);
+                         46u, 1u, f->qr_url[0] ? COL_BLUE : COL_AMBER, COL_BG);
 }
 
 /* Encoded once and only again if the URL changes: qrcodegen allocates two
@@ -538,6 +564,8 @@ static void activate_test(unsigned index, uint32_t now_ms) {
     snprintf(s_test_frame.qr_url, sizeof s_test_frame.qr_url,
              "https://example.com/room-test");
     s_test_frame.hold_left_s = -1;
+    s_test_frame.pres_phase = (uint8_t)ROOM_PRES_STEADY;
+    s_test_frame.pres_percent = 0u;
     s_test_frame.present = 0u;
     s_test_frame.elapsed_s = 0u;
     s_test_deadline_ms = 0u;
@@ -649,6 +677,111 @@ static void note_state_transition(uint8_t state, bool replay) {
     s_last_state = state;
 }
 
+/* ---- presence timing pie ----------------------------------------------
+ *
+ * main owns both presence timers -- how long a person must persist before it
+ * believes them, how long the room must stay quiet before it does not -- and
+ * sends only the fraction it has spent. This draws that fraction as a sector
+ * in the bottom-right corner: green while it is deciding somebody arrived,
+ * amber while it is deciding they left. Neither window is visible otherwise,
+ * so a panel that looks identical at 0.1 s and 9.9 s into the absence hold
+ * gives nobody anything to tune or to trust.
+ *
+ * One window blit per update rather than an arc of fill_rects: 784 pixels is
+ * fewer than a single glyph at scale 5, and this keeps it one SPI transaction
+ * however the sector is shaped. */
+static void paint_presence_pie(uint8_t phase, uint8_t percent) {
+    static uint16_t px[PIE_D * PIE_D];
+    const uint16_t wedge =
+        (phase == (uint8_t)ROOM_PRES_ENTERING) ? COL_GREEN : COL_AMBER;
+    const uint32_t sweep =
+        (uint32_t)(percent > 100u ? 100u : percent) * 36000u / 100u;
+    const int r_out = (int)PIE_D;        /* doubled coords: radius PIE_D/2 */
+    const int r_in = (int)PIE_D - 3;     /* rim, ~1.5 px thick at this size */
+
+    for (unsigned y = 0u; y < PIE_D; y++) {
+        for (unsigned x = 0u; x < PIE_D; x++) {
+            /* Doubled coordinates put the centre on a pixel boundary, so no
+             * sample lands exactly on an axis and the sector stays symmetric. */
+            const int dx = (int)(2u * x + 1u) - (int)PIE_D;
+            const int dy = (int)(2u * y + 1u) - (int)PIE_D;
+            const int d2 = dx * dx + dy * dy;
+            uint16_t c;
+            if (d2 > r_out * r_out) {
+                c = COL_BG;                       /* outside the disc */
+            } else if (d2 > r_in * r_in) {
+                c = COL_DIM;                      /* rim, so an empty pie reads */
+            } else {
+                /* Clockwise from 12 o'clock, in hundredths of a degree. */
+                float deg = atan2f((float)dx, (float)-dy) * 57.2957795f;
+                if (deg < 0.0f) {
+                    deg += 360.0f;
+                }
+                c = ((uint32_t)(deg * 100.0f) <= sweep) ? wedge : COL_BG;
+            }
+            px[y * PIE_D + x] = c;
+        }
+    }
+    st7789_set_window(PIE_X, PIE_Y, PIE_D, PIE_D);
+    st7789_blit(px, (size_t)PIE_D * PIE_D);
+}
+
+/* Decides whether the corner should be showing anything at all.
+ *
+ * A phase has to outlive its dwell before it is drawn: 200 ms for the entry
+ * window (whole thing is 600 ms), 2 s for the absence hold (which re-runs from
+ * zero on every sample that beats the threshold -- while somebody sits still and
+ * fidgets, that is most samples, and an undebounced indicator strobes). Leaving
+ * is held for PIE_HOLD_MS so one stray sample cannot blink it off mid-count.
+ *
+ * Erasing and redrawing are separate from the decision so a settled room costs
+ * no SPI at all. */
+static void service_presence_pie(const room_frame_t *f, bool full) {
+    const uint32_t now = to_ms_since_boot(get_absolute_time());
+
+    if (full) {
+        s_pie_phase = (uint8_t)ROOM_PRES_STEADY;   /* cleared by st7789_clear */
+        s_pie_percent = 0u;
+    }
+    if (f->pres_phase != s_pie_want) {
+        s_pie_want = f->pres_phase;
+        s_pie_want_since_ms = now;
+    }
+
+    const uint32_t dwelling = now - s_pie_want_since_ms;
+    uint8_t target = s_pie_phase;       /* anything else keeps what is drawn */
+    if (f->pres_phase == (uint8_t)ROOM_PRES_STEADY) {
+        if (s_pie_phase != (uint8_t)ROOM_PRES_STEADY &&
+            dwelling >= PIE_HOLD_MS) {
+            target = (uint8_t)ROOM_PRES_STEADY;
+        }
+    } else if (s_pie_phase == f->pres_phase || dwelling >=
+               (f->pres_phase == (uint8_t)ROOM_PRES_ENTERING ? PIE_ENTER_MS
+                                                             : PIE_SHOW_MS)) {
+        target = f->pres_phase;
+    }
+
+    if (target == (uint8_t)ROOM_PRES_STEADY) {
+        if (s_pie_phase != (uint8_t)ROOM_PRES_STEADY) {
+            st7789_fill_rect(PIE_X, PIE_Y, PIE_D, PIE_D, COL_BG);
+            s_pie_phase = (uint8_t)ROOM_PRES_STEADY;
+            s_pie_percent = 0u;
+        }
+        return;
+    }
+    /* Only trust the percentage when it belongs to the phase being drawn: a
+     * frame that has already gone steady carries 0 and would wipe the wedge. */
+    if (target != s_pie_phase ||
+        (f->pres_phase == target && f->pres_percent != s_pie_percent)) {
+        paint_presence_pie(target,
+                           f->pres_phase == target ? f->pres_percent
+                                                   : s_pie_percent);
+        s_pie_phase = target;
+        s_pie_percent = (f->pres_phase == target) ? f->pres_percent
+                                                  : s_pie_percent;
+    }
+}
+
 /* Applies F to the panel, painting only the regions whose content changed. */
 static void apply_frame(const room_frame_t *f) {
     const room_frame_t *d = &s_drawn;
@@ -690,6 +823,7 @@ static void apply_frame(const room_frame_t *f) {
     if (!full && strcmp(f->qr_url, d->qr_url) != 0) {
         paint_url(f);
     }
+    service_presence_pie(f, full);
 
     st7789_dma_wait();
     s_drawn = *f;
@@ -886,11 +1020,12 @@ int main(void) {
         if (time_reached(next_log)) {
             next_log = make_timeout_time_ms(5000);
             DIAG("[roomnode_display] frames=%lu bytes=%lu have=%d state=%u "
-                 "present=%d net=%d tpres=%d d=%d\n",
+                 "present=%d net=%d tpres=%d d=%d phase=%u pct=%u\n",
                  (unsigned long)s_frames_rx, (unsigned long)s_bytes_rx,
                  s_have_frame ? 1 : 0, (unsigned)s_frame.state,
                  s_frame.present ? 1 : 0, s_frame.net_up ? 1 : 0,
-                 s_frame.tpresence, s_frame.tpres_delta);
+                 s_frame.tpresence, s_frame.tpres_delta,
+                 (unsigned)s_frame.pres_phase, (unsigned)s_frame.pres_percent);
         }
         tight_loop_contents();
     }

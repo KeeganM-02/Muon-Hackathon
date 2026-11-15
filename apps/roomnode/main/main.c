@@ -33,6 +33,7 @@ FWOG_WATCHDOG_DEFAULT();
 #define PRESENT_CONFIRM_MS   600u     /* 3 samples before believing a body */
 
 #define DISPLAY_PERIOD_MS    500u
+#define DISPLAY_FAST_MS      100u   /* while a presence timer is running */
 #define HB_PERIOD_MS         5000u
 #define IO_APPLY_TRIES       20u
 #define IO_APPLY_RETRY_MS    50u
@@ -130,8 +131,30 @@ static void push_display(node_t *n, const esp_link_in_t *in) {
     snprintf(f.holder, sizeof f.holder, "%s", in->holder);
     snprintf(f.qr_url, sizeof f.qr_url, "%s", in->qr_url);
 
+    const uint32_t now_ms = to_ms_since_boot(get_absolute_time());
     if (n->present) {
-        f.elapsed_s = (to_ms_since_boot(get_absolute_time()) - n->present_since_ms) / 1000u;
+        f.elapsed_s = (now_ms - n->present_since_ms) / 1000u;
+    }
+
+    /* The two windows in which the verdict is still undecided, as a fraction.
+     * Both are invisible otherwise: the panel looks identical a tenth of a
+     * second and nine seconds into the absence hold, so there is nothing to
+     * watch while tuning, and nothing to tell a person at the door whether the
+     * node has noticed them yet. */
+    f.pres_phase = (uint8_t)ROOM_PRES_STEADY;
+    f.pres_percent = 0u;
+    if (n->confirming) {
+        const uint32_t spent = now_ms - n->confirm_since_ms;
+        f.pres_phase = (uint8_t)ROOM_PRES_ENTERING;
+        f.pres_percent = (uint8_t)((spent >= PRESENT_CONFIRM_MS)
+                                   ? 100u
+                                   : spent * 100u / PRESENT_CONFIRM_MS);
+    } else if (n->present) {
+        const uint32_t quiet = now_ms - n->last_motion_ms;
+        if (quiet < PRESENT_HOLD_MS) {
+            f.pres_phase = (uint8_t)ROOM_PRES_EXITING;
+            f.pres_percent = (uint8_t)(quiet * 100u / PRESENT_HOLD_MS);
+        }
     }
 
     /* How long the current hold has left. Negative means "does not apply",
@@ -303,7 +326,13 @@ int main(void) {
         }
 
         if (now >= next_display) {
-            next_display = now + DISPLAY_PERIOD_MS;
+            /* A 600 ms window sampled every 500 ms is one frame, which is not a
+             * progress indicator. Push four times as often while either timer
+             * is running; the frame is ~300 bytes and the link is idle anyway. */
+            const bool timing = n.confirming ||
+                                (n.present &&
+                                 now - n.last_motion_ms < PRESENT_HOLD_MS);
+            next_display = now + (timing ? DISPLAY_FAST_MS : DISPLAY_PERIOD_MS);
             push_display(&n, &in);
         }
 
@@ -341,9 +370,12 @@ int main(void) {
              * drifts: tpresence tracks the ambient with a lag, so a room that
              * is warming or cooling shows up here and nowhere else. */
             DIAG("[roomnode] raw tobj=%d tamb=%d comp=%d tpres=%d base=%d "
-                 "d=%d flags=0x%02X\n",
+                 "d=%d flags=0x%02X quiet=%lums\n",
                  n.tobj_raw, n.tamb_raw, n.tobj_comp, n.tpresence,
-                 n.tpres_base, n.tpres_delta, n.func_status);
+                 n.tpres_base, n.tpres_delta, n.func_status,
+                 (unsigned long)(n.present
+                     ? (to_ms_since_boot(get_absolute_time()) - n.last_motion_ms)
+                     : 0u));
         }
 
         /* Keep UART1 below its 32-byte FIFO depth. At 115200 baud the C6's
