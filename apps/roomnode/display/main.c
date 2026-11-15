@@ -60,13 +60,14 @@ FWOG_POWER_DEFAULT();
 /* Presence timing pie, bottom-right corner. Sits right of the URL row (which
  * is capped at 46 columns for it) and clear of the alert bar, which ends at
  * y 204. */
-/* Nothing here is drawn the instant main says a timer started. With nobody
- * moving, every sample below the threshold restarts the hold, so a raw
- * transition indicator blinks on and off once per sample and reads as a fault
- * rather than as progress. Both edges need a minimum dwell, and the hide is
- * held briefly so a single stray sample cannot blink it off. */
-#define PIE_ENTER_MS 200u    /* the whole window is 600 ms; don't lag it */
-#define PIE_SHOW_MS  2000u   /* the hold runs 10 s; a fifth of the way in */
+/* How long a pie outlives the phase that drew it. main decides when a timer is
+ * worth showing at all -- it will not report the absence hold until the
+ * countdown is a second old, and it holds the entry pie at 100% for a moment
+ * when it completes. This only bridges the single-sample flicker of a hold that
+ * restarts from zero, so the panel never drops a sector for 200 ms and redraws
+ * it immediately after. Never the other way round: a live phase always paints,
+ * because latching over it is how the sector froze at 83% and how a settled room
+ * kept an empty ring on screen. */
 #define PIE_HOLD_MS  600u
 
 #define PIE_X 300u
@@ -122,12 +123,11 @@ static uint8_t s_beep[BEEP_SAMPLES];
 static room_frame_t s_drawn;
 static bool         s_painted_any;
 
-/* What the corner is showing, what main last asked for, and when it changed
- * its mind -- see PIE_SHOW_MS. */
+/* What the corner is showing, and when a live pie was last asked for. */
+static uint8_t  s_pie_showing;
 static uint8_t  s_pie_phase;
 static uint8_t  s_pie_percent;
-static uint8_t  s_pie_want;
-static uint32_t s_pie_want_since_ms;
+static uint32_t s_pie_live_at_ms;
 
 static uint16_t state_colour(room_state_t st) {
     switch (st) {
@@ -728,57 +728,32 @@ static void paint_presence_pie(uint8_t phase, uint8_t percent) {
 
 /* Decides whether the corner should be showing anything at all.
  *
- * A phase has to outlive its dwell before it is drawn: 200 ms for the entry
- * window (whole thing is 600 ms), 2 s for the absence hold (which re-runs from
- * zero on every sample that beats the threshold -- while somebody sits still and
- * fidgets, that is most samples, and an undebounced indicator strobes). Leaving
- * is held for PIE_HOLD_MS so one stray sample cannot blink it off mid-count.
- *
- * Erasing and redrawing are separate from the decision so a settled room costs
- * no SPI at all. */
+ * Deliberately dumb: a live phase paints, always, and the only state kept is
+ * how recently one arrived. All the judgement about *when* a timer is worth a
+ * sector lives in main, which owns the timers. An earlier version latched the
+ * drawn phase against a dwell timer here and got two bugs out of it: a flapping
+ * source never satisfied the dwell, so a sector froze at whatever percentage it
+ * had reached, and a restarting hold left an empty ring on screen at 0%. */
 static void service_presence_pie(const room_frame_t *f, bool full) {
     const uint32_t now = to_ms_since_boot(get_absolute_time());
 
     if (full) {
-        s_pie_phase = (uint8_t)ROOM_PRES_STEADY;   /* cleared by st7789_clear */
-        s_pie_percent = 0u;
+        s_pie_showing = 0u;          /* st7789_clear already blanked the corner */
     }
-    if (f->pres_phase != s_pie_want) {
-        s_pie_want = f->pres_phase;
-        s_pie_want_since_ms = now;
-    }
-
-    const uint32_t dwelling = now - s_pie_want_since_ms;
-    uint8_t target = s_pie_phase;       /* anything else keeps what is drawn */
-    if (f->pres_phase == (uint8_t)ROOM_PRES_STEADY) {
-        if (s_pie_phase != (uint8_t)ROOM_PRES_STEADY &&
-            dwelling >= PIE_HOLD_MS) {
-            target = (uint8_t)ROOM_PRES_STEADY;
-        }
-    } else if (s_pie_phase == f->pres_phase || dwelling >=
-               (f->pres_phase == (uint8_t)ROOM_PRES_ENTERING ? PIE_ENTER_MS
-                                                             : PIE_SHOW_MS)) {
-        target = f->pres_phase;
-    }
-
-    if (target == (uint8_t)ROOM_PRES_STEADY) {
-        if (s_pie_phase != (uint8_t)ROOM_PRES_STEADY) {
-            st7789_fill_rect(PIE_X, PIE_Y, PIE_D, PIE_D, COL_BG);
-            s_pie_phase = (uint8_t)ROOM_PRES_STEADY;
-            s_pie_percent = 0u;
+    if (f->pres_phase != (uint8_t)ROOM_PRES_STEADY) {
+        s_pie_live_at_ms = now;
+        if (!s_pie_showing || f->pres_phase != s_pie_phase ||
+            f->pres_percent != s_pie_percent) {
+            paint_presence_pie(f->pres_phase, f->pres_percent);
+            s_pie_showing = 1u;
+            s_pie_phase = f->pres_phase;
+            s_pie_percent = f->pres_percent;
         }
         return;
     }
-    /* Only trust the percentage when it belongs to the phase being drawn: a
-     * frame that has already gone steady carries 0 and would wipe the wedge. */
-    if (target != s_pie_phase ||
-        (f->pres_phase == target && f->pres_percent != s_pie_percent)) {
-        paint_presence_pie(target,
-                           f->pres_phase == target ? f->pres_percent
-                                                   : s_pie_percent);
-        s_pie_phase = target;
-        s_pie_percent = (f->pres_phase == target) ? f->pres_percent
-                                                  : s_pie_percent;
+    if (s_pie_showing && now - s_pie_live_at_ms >= PIE_HOLD_MS) {
+        st7789_fill_rect(PIE_X, PIE_Y, PIE_D, PIE_D, COL_BG);
+        s_pie_showing = 0u;
     }
 }
 

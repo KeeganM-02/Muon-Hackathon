@@ -156,12 +156,21 @@ conclude the room emptied). Both windows are otherwise invisible — a panel tha
 looks the same at 0.1 s and 9.9 s into a hold gives nobody anything to tune or
 to trust.
 
-The display debounces it, which is a presentation decision and therefore its
-own: an exit phase must persist 2 s before it is drawn, an entry phase 200 ms,
-and an active pie is held 600 ms past the timer so one stray sample cannot blink
-it off. Without that the indicator strobes once per sample whenever somebody sits
-still and fidgets, since every sub-threshold sample restarts the hold from zero.
-The URL line is capped at 46 columns to keep the corner clear.
+Who decides *when* a timer is worth showing is main, because main owns the
+timers:
+
+- The absence hold runs from the last motion sample, so it is at 0% for a second
+  after somebody arrives. main does not report it until it is
+  `PRESENT_PIE_QUIET_MS` (1 s) old, so an amber sector always means the countdown
+  has actually started, and a person standing in the room never sees one.
+- Confirmation lands on the sample where the verdict flips, one frame short of
+  full. main holds the entry phase at 100% for `PRESENT_CONFIRM_HOLD_MS` (300 ms)
+  so the sector finishes instead of vanishing at 83%.
+
+The display only bridges gaps: it paints whatever live phase it is handed, and
+erases 600 ms after the last one, which absorbs a hold restarting from zero
+without ever latching over a live phase. The URL line is capped at 46 columns to
+keep the corner clear.
 
 ## API contract
 

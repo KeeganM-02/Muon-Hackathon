@@ -31,6 +31,15 @@ FWOG_WATCHDOG_DEFAULT();
 #define SAMPLE_MS            200u
 #define PRESENT_HOLD_MS      10000u   /* how long one motion event counts for */
 #define PRESENT_CONFIRM_MS   600u     /* 3 samples before believing a body */
+/* The corner pie is the only thing these two govern. The exit countdown runs
+ * from the last motion sample, so it is at 0% for a full second after somebody
+ * arrives -- drawing that says "leaving" to a room that just filled up. Only
+ * report it once the countdown is visibly under way. And when it completes the
+ * entry pie must actually reach 100% before it is replaced: the phase flips to
+ * "present" on the sample where confirmation succeeds, which is one frame short
+ * of full. */
+#define PRESENT_PIE_QUIET_MS 1000u
+#define PRESENT_CONFIRM_HOLD_MS 300u
 
 #define DISPLAY_PERIOD_MS    500u
 #define DISPLAY_FAST_MS      100u   /* while a presence timer is running */
@@ -43,6 +52,7 @@ typedef struct {
     uint32_t present_since_ms;
     uint32_t last_motion_ms;
     uint32_t confirm_since_ms;
+    uint32_t confirm_done_ms; /* when confirmation last succeeded, 0 = never */
     bool     confirming;
     bool     sensor_ok;
 
@@ -149,9 +159,15 @@ static void push_display(node_t *n, const esp_link_in_t *in) {
         f.pres_percent = (uint8_t)((spent >= PRESENT_CONFIRM_MS)
                                    ? 100u
                                    : spent * 100u / PRESENT_CONFIRM_MS);
+    } else if (n->confirm_done_ms != 0u &&
+               now_ms - n->confirm_done_ms < PRESENT_CONFIRM_HOLD_MS) {
+        /* One last full frame: the sector finishes rather than vanishing at
+         * 83%, which is what "stuck near completion" looked like. */
+        f.pres_phase = (uint8_t)ROOM_PRES_ENTERING;
+        f.pres_percent = 100u;
     } else if (n->present) {
         const uint32_t quiet = now_ms - n->last_motion_ms;
-        if (quiet < PRESENT_HOLD_MS) {
+        if (quiet >= PRESENT_PIE_QUIET_MS && quiet < PRESENT_HOLD_MS) {
             f.pres_phase = (uint8_t)ROOM_PRES_EXITING;
             f.pres_percent = (uint8_t)(quiet * 100u / PRESENT_HOLD_MS);
         }
@@ -304,6 +320,7 @@ int main(void) {
                         } else if (now - n.confirm_since_ms >= PRESENT_CONFIRM_MS) {
                             n.present = true;
                             n.confirming = false;
+                            n.confirm_done_ms = now ? now : 1u;
                             n.present_since_ms = now;
                             esp_link_send_presence(true);
                             DIAG("[roomnode] presence: present\n");
@@ -329,9 +346,12 @@ int main(void) {
             /* A 600 ms window sampled every 500 ms is one frame, which is not a
              * progress indicator. Push four times as often while either timer
              * is running; the frame is ~300 bytes and the link is idle anyway. */
-            const bool timing = n.confirming ||
-                                (n.present &&
-                                 now - n.last_motion_ms < PRESENT_HOLD_MS);
+            const bool timing =
+                n.confirming ||
+                (n.confirm_done_ms != 0u &&
+                 now - n.confirm_done_ms < PRESENT_CONFIRM_HOLD_MS) ||
+                (n.present && now - n.last_motion_ms >= PRESENT_PIE_QUIET_MS &&
+                 now - n.last_motion_ms < PRESENT_HOLD_MS);
             next_display = now + (timing ? DISPLAY_FAST_MS : DISPLAY_PERIOD_MS);
             push_display(&n, &in);
         }
