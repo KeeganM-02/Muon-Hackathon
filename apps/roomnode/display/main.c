@@ -478,7 +478,7 @@ static void paint_diagnostics(const room_frame_t *f, bool full) {
 }
 
 static void set_view(ui_view_t view);
-static void note_state_transition(uint8_t state);
+static void note_state_transition(uint8_t state, bool replay);
 
 static void paint_test_menu(void) {
     static const char *const names[] = {
@@ -508,7 +508,7 @@ static void start_beep(void) {
 static void activate_test(unsigned index, uint32_t now_ms) {
     if (index == 0u) {
         s_test_override = false;
-        note_state_transition(s_frame.state);
+        note_state_transition(s_frame.state, false);
         set_view(UI_STATUS);
         return;
     }
@@ -571,7 +571,10 @@ static void activate_test(unsigned index, uint32_t now_ms) {
     }
 
     s_test_override = true;
-    note_state_transition(s_test_frame.state);
+    /* `replay`: the exerciser is a deliberate trigger, so running the same
+     * item twice must cue it twice. An edge alone would not -- the second run
+     * of ENDING entered a state it was already in, and played nothing. */
+    note_state_transition(s_test_frame.state, true);
     set_view(UI_STATUS);
 }
 
@@ -627,8 +630,16 @@ static void set_view(ui_view_t view) {
     }
 }
 
-static void note_state_transition(uint8_t state) {
-    if (!s_state_seen || s_last_state != state) {
+/* Cues the entry to a room state. Service-driven transitions are edges: a
+ * repeated GET of the state we are already in must not chirp at the room
+ * every five seconds. The exerciser passes `replay` because it is being asked
+ * to show what a transition looks and sounds like, and the previous state at
+ * that moment is an artefact of the last item run, not a fact about the room. */
+static void note_state_transition(uint8_t state, bool replay) {
+    if (replay || !s_state_seen || s_last_state != state) {
+        /* Both flags reset, not just the entry cue: leaving s_warn_five_beeped
+         * set would silence the five-second reminder for the rest of the
+         * session, since nothing else ever clears it. */
         s_warn_five_beeped = false;
         if (state == ROOM_WARN) {
             start_beep();
@@ -729,7 +740,7 @@ static void service_link(void) {
             s_view_dirty = true;
         }
         if (!s_test_override) {
-            note_state_transition(f.state);
+            note_state_transition(f.state, false);
         }
     }
 }
