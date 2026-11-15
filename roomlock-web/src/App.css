@@ -1,25 +1,44 @@
-/* RoomLock styles. Status colors match the FreeWili LED bar:
-   green = free, blue = in use, purple = reserved soon, amber = ending soon. */
+/* RoomLock: Wayne State green, cream paper, and gold accents. One idea: every room
+   is a door. Status is told by shape. The lock dial fills as a room gets busier, and
+   the door itself stands ajar, shut, or wide open. */
+
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&display=swap');
 
 :root {
-  --bg: #f5f6fb;
-  --surface: #ffffff;
-  --text: #0f172a;
-  --muted: #64748b;
-  --border: #e2e8f0;
-  --brand: #4f46e5;
-  --brand-dark: #4338ca;
-  --brand-soft: #eef2ff;
-  --free: #16a34a;
-  --held: #2563eb;
-  --reserved: #7c3aed;
-  --warn: #d97706;
-  --danger: #dc2626;
-  --radius: 16px;
-  --shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(15, 23, 42, 0.06);
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  color: var(--text);
-  background: var(--bg);
+  --ground: #0c5449; /* the walls */
+  --deep: #062e28; /* doorways, bars, and text on paper */
+  --paper: #fbf7ec; /* doors, sheets, and text on green */
+  --gold: #ffcc33; /* the accent */
+  --paper-soft: rgba(251, 247, 236, 0.76);
+  --deep-soft: rgba(6, 46, 40, 0.7);
+  --line: 3px;
+  font-family: 'Bricolage Grotesque', 'Avenir Next', 'Segoe UI', system-ui, sans-serif;
+  color: var(--paper);
+  background: var(--ground);
+
+  /* Amplify's sign-in form reads these from the page root. */
+  --amplify-fonts-default-static: 'Bricolage Grotesque', system-ui, sans-serif;
+  --amplify-fonts-default-variable: 'Bricolage Grotesque', system-ui, sans-serif;
+  --amplify-colors-primary-10: #e3efe9;
+  --amplify-colors-primary-20: #c5ddd4;
+  --amplify-colors-primary-40: #6fa697;
+  --amplify-colors-primary-60: #2c7566;
+  --amplify-colors-primary-80: #0c5449;
+  --amplify-colors-primary-90: #083f37;
+  --amplify-colors-primary-100: #062e28;
+  --amplify-components-button-primary-background-color: #0c5449;
+  --amplify-components-button-primary-hover-background-color: #083f37;
+  --amplify-components-button-primary-focus-background-color: #083f37;
+  --amplify-components-button-primary-active-background-color: #062e28;
+  --amplify-components-button-link-color: #0c5449;
+  --amplify-components-tabs-item-active-color: #0c5449;
+  --amplify-components-tabs-item-active-border-color: #ffcc33;
+  --amplify-components-tabs-item-hover-color: #083f37;
+  --amplify-components-fieldcontrol-border-color: #0c5449;
+  --amplify-components-fieldcontrol-focus-border-color: #0c5449;
+  --amplify-components-authenticator-router-background-color: #fbf7ec;
+  --amplify-components-button-border-radius: 999px;
+  --amplify-components-fieldcontrol-border-radius: 14px;
 }
 
 * {
@@ -28,14 +47,16 @@
 
 body {
   margin: 0;
-  background: var(--bg);
+  background: var(--ground);
   -webkit-font-smoothing: antialiased;
 }
 
 h1,
 h2 {
   margin: 0;
-  letter-spacing: -0.02em;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
 }
 
 a {
@@ -46,6 +67,7 @@ a {
 button,
 input {
   font: inherit;
+  color: inherit;
 }
 
 button {
@@ -53,14 +75,132 @@ button {
 }
 
 button:disabled {
-  opacity: 0.55;
+  opacity: 0.5;
   cursor: default;
 }
 
-.tone-free { --tone: var(--free); }
-.tone-held { --tone: var(--held); }
-.tone-reserved { --tone: var(--reserved); }
-.tone-warn { --tone: var(--warn); }
+:focus-visible {
+  outline: var(--line) solid var(--gold);
+  outline-offset: 3px;
+}
+
+/* ---------- the lock dial ---------- */
+
+.dial {
+  --dial-line: var(--paper);
+  --dial-fill: var(--gold);
+  --dial-empty: transparent;
+  flex: none;
+  display: inline-block;
+  width: 16px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 2.5px solid var(--dial-line);
+  background: var(--dial-empty);
+}
+
+.dial-reserved {
+  background: conic-gradient(var(--dial-fill) 0 50%, var(--dial-empty) 0);
+}
+
+.dial-warn {
+  background: conic-gradient(var(--dial-fill) 0 75%, var(--dial-empty) 0);
+}
+
+.dial-held {
+  background: var(--dial-fill);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 15px;
+  white-space: nowrap;
+}
+
+/* ---------- the door ---------- */
+
+.door {
+  width: 100%;
+  perspective: 700px;
+}
+
+.door-frame {
+  position: relative;
+  container-type: inline-size;
+  aspect-ratio: 5 / 8;
+  background: var(--deep);
+  border: 4px solid var(--deep);
+  border-bottom: 0;
+  border-radius: 50% 50% 0 0 / 31% 31% 0 0;
+}
+
+.door-inside {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding-left: 30%;
+  color: var(--gold);
+  font-weight: 800;
+  font-size: 15cqw;
+}
+
+.door-leaf {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 6cqw;
+  padding-top: 12cqw;
+  color: var(--deep);
+  background: var(--paper);
+  border-radius: 50% 50% 0 0 / 31% 31% 0 0;
+  transform-origin: left center;
+  transition: transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* the raised panel on the door */
+.door-leaf::before {
+  content: '';
+  position: absolute;
+  inset: 8% 11% 9%;
+  border: max(2px, 1.4cqw) solid var(--deep);
+  border-radius: 50% 50% 4cqw 4cqw / 30% 30% 4cqw 4cqw;
+}
+
+.door-number {
+  font-size: 50cqw;
+  font-weight: 800;
+  line-height: 0.8;
+  letter-spacing: -0.05em;
+}
+
+.door-leaf .dial {
+  --dial-line: var(--deep);
+  --dial-fill: var(--deep);
+  --dial-empty: var(--paper);
+  width: 20cqw;
+  border-width: max(3px, 2.4cqw);
+}
+
+.pose-ajar .door-leaf {
+  transform: rotateY(-26deg);
+}
+
+.pose-open .door-leaf {
+  transform: rotateY(-74deg);
+}
+
+/* the floor the door stands on */
+.door-stand {
+  width: 100%;
+  padding: 0 16%;
+  border-bottom: 5px solid var(--paper);
+}
 
 /* ---------- shell ---------- */
 
@@ -76,9 +216,8 @@ button:disabled {
   align-items: center;
   gap: 16px;
   padding: 12px 20px;
-  background: rgba(255, 255, 255, 0.88);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid var(--border);
+  background: var(--ground);
+  border-bottom: var(--line) solid var(--deep);
 }
 
 .brand {
@@ -86,20 +225,23 @@ button:disabled {
   align-items: center;
   gap: 10px;
   font-weight: 800;
-  font-size: 18px;
-  letter-spacing: -0.02em;
+  font-size: 22px;
+  letter-spacing: -0.03em;
+}
+
+.brand .dial {
+  width: 22px;
+  border-width: 3.5px;
 }
 
 .brand.big {
-  font-size: 28px;
+  font-size: 40px;
+  gap: 14px;
 }
 
-.brand-mark {
-  width: 22px;
-  height: 22px;
-  border-radius: 7px;
-  background: linear-gradient(135deg, var(--brand), var(--reserved));
-  box-shadow: inset 0 0 0 5px rgba(255, 255, 255, 0.35);
+.brand.big .dial {
+  width: 38px;
+  border-width: 6px;
 }
 
 .nav {
@@ -109,49 +251,51 @@ button:disabled {
 }
 
 .nav a {
-  padding: 8px 14px;
+  padding: 8px 16px;
   border-radius: 999px;
-  color: var(--muted);
-  font-weight: 600;
-  font-size: 15px;
+  font-weight: 700;
+  font-size: 16px;
 }
 
 .nav a.active {
-  color: var(--brand);
-  background: var(--brand-soft);
+  background: var(--gold);
+  color: var(--deep);
 }
 
 .demo-banner {
   text-align: center;
   font-size: 13px;
-  padding: 6px 12px;
-  background: #fef3c7;
-  color: #92400e;
+  font-weight: 600;
+  padding: 5px 12px;
+  background: var(--deep);
+  color: var(--paper-soft);
 }
 
 .content {
-  max-width: 720px;
+  max-width: 760px;
   margin: 0 auto;
-  padding: 24px 20px 48px;
+  padding: 28px 20px 56px;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 20px;
+  gap: 22px;
 }
 
 /* ---------- text ---------- */
 
 .page-head {
   display: grid;
-  gap: 4px;
+  gap: 8px;
 }
 
 .page-head h1 {
-  font-size: 30px;
+  font-size: clamp(44px, 12vw, 72px);
 }
 
 .muted {
-  color: var(--muted);
   margin: 0;
+  color: var(--paper-soft);
+  font-size: 17px;
+  font-weight: 500;
 }
 
 .center {
@@ -159,76 +303,46 @@ button:disabled {
 }
 
 .back {
-  color: var(--muted);
-  font-weight: 600;
-  font-size: 15px;
-}
-
-/* ---------- status pill ---------- */
-
-.pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  border-radius: 999px;
+  justify-self: start;
   font-weight: 700;
-  font-size: 14px;
-  white-space: nowrap;
-  color: var(--tone);
-  background: color-mix(in srgb, var(--tone) 12%, white);
+  font-size: 16px;
+  border-bottom: 2px solid var(--gold);
 }
 
-.dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--tone);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--tone) 22%, transparent);
-}
-
-/* ---------- rooms list ---------- */
+/* ---------- rooms: a corridor of doors ---------- */
 
 .room-grid {
   display: grid;
-  gap: 14px;
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  row-gap: 34px;
 }
 
-.room-card {
+.room-tile {
   display: grid;
-  gap: 14px;
-  padding: 18px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-top: 5px solid var(--tone);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  transition: transform 0.15s, box-shadow 0.15s;
+  justify-items: center;
+  gap: 6px;
+  text-align: center;
 }
 
-.room-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.1);
+.room-tile .door-stand {
+  margin-bottom: 8px;
 }
 
-.room-card-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  flex-wrap: wrap;
+.room-tile:hover .pose-ajar .door-leaf,
+.room-tile:focus-visible .pose-ajar .door-leaf {
+  transform: rotateY(-42deg);
 }
 
 .room-number {
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 800;
+  letter-spacing: -0.02em;
 }
 
-.room-card-detail {
-  margin: 0;
-  color: var(--muted);
+.room-tile-detail {
+  color: var(--paper-soft);
   font-size: 15px;
+  font-weight: 500;
 }
 
 /* ---------- room page (QR landing) ---------- */
@@ -237,37 +351,32 @@ button:disabled {
   display: grid;
   justify-items: center;
   gap: 10px;
-  padding: 32px 20px;
   text-align: center;
-  color: white;
-  border-radius: 24px;
-  background: radial-gradient(120% 120% at 50% 0%, color-mix(in srgb, var(--tone) 70%, white), var(--tone));
-  box-shadow: 0 18px 40px color-mix(in srgb, var(--tone) 35%, transparent);
+}
+
+.hero-door {
+  padding: 0 calc(50% - min(21vw, 95px));
+  margin-bottom: 12px;
+}
+
+.hero h1 {
+  font-size: clamp(48px, 13vw, 76px);
 }
 
 .hero .pill {
-  background: rgba(255, 255, 255, 0.95);
+  font-size: 18px;
 }
 
-.hero-kicker {
-  margin: 0;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  font-size: 13px;
-  font-weight: 700;
-  opacity: 0.85;
-}
-
-.hero-number {
-  font-size: 88px;
-  line-height: 1;
-  font-weight: 900;
+.hero .pill .dial {
+  width: 20px;
+  border-width: 3px;
 }
 
 .hero-detail {
-  margin: 4px 0 0;
-  font-size: 17px;
-  font-weight: 600;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--paper-soft);
 }
 
 .actions {
@@ -281,77 +390,88 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 12px 18px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--text);
-  font-weight: 700;
+  padding: 12px 20px;
+  border-radius: 999px;
+  border: var(--line) solid var(--paper);
+  background: transparent;
+  color: var(--paper);
+  font-weight: 800;
+  transition: transform 0.1s;
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .btn.primary {
-  background: var(--brand);
-  border-color: transparent;
-  color: white;
-}
-
-.btn.primary:hover:not(:disabled) {
-  background: var(--brand-dark);
+  background: var(--gold);
+  border-color: var(--gold);
+  color: var(--deep);
 }
 
 .btn.danger {
-  color: var(--danger);
-  border-color: color-mix(in srgb, var(--danger) 35%, white);
+  background: var(--paper);
+  color: var(--deep);
 }
 
 .btn.big {
-  padding: 18px;
-  font-size: 18px;
-  border-radius: 16px;
-}
-
-.btn.ghost {
-  background: transparent;
+  padding: 20px;
+  font-size: 22px;
+  letter-spacing: -0.01em;
 }
 
 .btn.small {
-  padding: 8px 12px;
+  padding: 7px 14px;
   font-size: 14px;
 }
 
 /* ---------- notices ---------- */
 
 .notice {
-  padding: 12px 16px;
-  border-radius: 12px;
-  font-weight: 600;
-  font-size: 15px;
+  padding: 14px 18px;
+  border-radius: 14px;
+  font-weight: 700;
+  font-size: 16px;
 }
 
 .notice.ok {
-  background: #dcfce7;
-  color: #166534;
+  background: var(--paper);
+  color: var(--deep);
 }
 
 .notice.error {
-  background: #fee2e2;
-  color: #991b1b;
+  background: var(--deep);
+  border: var(--line) solid var(--gold);
 }
 
-/* ---------- cards and forms ---------- */
+/* ---------- sheets and forms (cream paper, dark green text) ---------- */
 
 .card {
   display: grid;
-  gap: 14px;
-  padding: 20px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  gap: 16px;
+  padding: 22px;
+  background: var(--paper);
+  color: var(--deep);
+  border-radius: 22px;
 }
 
 .card h2 {
-  font-size: 20px;
+  font-size: 26px;
+}
+
+.card .muted {
+  color: var(--deep-soft);
+}
+
+.card .btn {
+  border-color: var(--deep);
+  color: var(--deep);
+}
+
+.card .btn.primary {
+  background: var(--ground);
+  border-color: var(--ground);
+  color: var(--paper);
 }
 
 .card.empty {
@@ -360,19 +480,17 @@ button:disabled {
 
 .field {
   display: grid;
-  gap: 6px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--muted);
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 700;
 }
 
 .field input {
   width: 100%;
   padding: 12px 14px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  color: var(--text);
-  background: white;
+  border-radius: 14px;
+  border: 2.5px solid var(--deep);
+  background: var(--paper);
 }
 
 .chips {
@@ -382,29 +500,44 @@ button:disabled {
 }
 
 .chip {
-  padding: 8px 14px;
+  padding: 8px 16px;
   border-radius: 999px;
-  border: 1px solid var(--border);
-  background: white;
-  color: var(--text);
-  font-weight: 600;
-  font-size: 14px;
+  border: 2.5px solid var(--deep);
+  background: var(--paper);
+  color: var(--deep);
+  font-weight: 700;
+  font-size: 15px;
 }
 
 .chip.on {
-  background: var(--brand);
-  border-color: var(--brand);
-  color: white;
+  background: var(--deep);
+  color: var(--gold);
 }
 
-/* ---------- bookings ---------- */
+/* ---------- bookings: door-hanger tags with a punched hole ---------- */
 
 .booking {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+  padding-left: 64px;
+  border-radius: 999px 22px 22px 999px;
+}
+
+.booking::before {
+  content: '';
+  position: absolute;
+  left: 20px;
+  top: 50%;
+  width: 24px;
+  aspect-ratio: 1;
+  translate: 0 -50%;
+  border-radius: 50%;
+  border: var(--line) solid var(--gold);
+  background: var(--ground);
 }
 
 .booking-when {
@@ -413,7 +546,13 @@ button:disabled {
 }
 
 .booking-when strong {
-  font-size: 17px;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.booking-when .muted {
+  font-size: 15px;
 }
 
 /* ---------- assistant chat ---------- */
@@ -429,34 +568,35 @@ button:disabled {
   grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   align-content: start;
-  min-height: 40vh;
+  min-height: 38vh;
 }
 
 .bubble {
   max-width: 85%;
-  padding: 12px 16px;
-  border-radius: 18px;
-  line-height: 1.45;
+  padding: 12px 18px;
+  border-radius: 22px;
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1.4;
   white-space: pre-wrap;
 }
 
 .bubble.user {
   justify-self: end;
-  background: var(--brand);
-  color: white;
-  border-bottom-right-radius: 6px;
+  background: var(--gold);
+  color: var(--deep);
+  border-bottom-right-radius: 4px;
 }
 
 .bubble.assistant {
   justify-self: start;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-bottom-left-radius: 6px;
+  background: var(--paper);
+  color: var(--deep);
+  border-bottom-left-radius: 4px;
 }
 
 .bubble.typing {
-  color: var(--muted);
-  font-style: italic;
+  color: var(--deep-soft);
 }
 
 .chat-input {
@@ -464,20 +604,25 @@ button:disabled {
   bottom: 16px;
   display: flex;
   gap: 8px;
-  padding: 8px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  box-shadow: var(--shadow);
+  padding: 6px;
+  background: var(--paper);
+  color: var(--deep);
+  border-radius: 999px;
 }
 
 .chat-input input {
   flex: 1;
   min-width: 0;
-  padding: 10px 12px;
+  padding: 10px 14px;
   border: 0;
   outline: none;
   background: transparent;
+}
+
+.chat-input .btn.primary {
+  background: var(--ground);
+  border-color: var(--ground);
+  color: var(--paper);
 }
 
 /* ---------- sign-in screen ---------- */
@@ -485,53 +630,28 @@ button:disabled {
 .auth-header {
   display: grid;
   justify-items: center;
-  gap: 6px;
-  padding: 32px 0 16px;
+  gap: 8px;
+  padding: 36px 0 20px;
   text-align: center;
-}
-
-/* Amplify's sign-in form reads these variables from the page root. */
-:root {
-  --amplify-colors-primary-10: #eef2ff;
-  --amplify-colors-primary-20: #e0e7ff;
-  --amplify-colors-primary-40: #a5b4fc;
-  --amplify-colors-primary-60: #6366f1;
-  --amplify-colors-primary-80: #4f46e5;
-  --amplify-colors-primary-90: #4338ca;
-  --amplify-colors-primary-100: #3730a3;
-  --amplify-components-button-primary-background-color: #4f46e5;
-  --amplify-components-button-primary-hover-background-color: #4338ca;
-  --amplify-components-button-primary-focus-background-color: #4338ca;
-  --amplify-components-button-primary-active-background-color: #3730a3;
-  --amplify-components-button-link-color: #4f46e5;
-  --amplify-components-tabs-item-active-color: #4f46e5;
-  --amplify-components-tabs-item-active-border-color: #4f46e5;
-  --amplify-components-tabs-item-hover-color: #4338ca;
-  --amplify-components-fieldcontrol-focus-border-color: #4f46e5;
-  --amplify-components-button-border-radius: 12px;
-  --amplify-components-fieldcontrol-border-radius: 12px;
 }
 
 [data-amplify-authenticator] {
   min-height: 100vh;
-  background: var(--bg);
+  background: var(--ground);
 }
 
 [data-amplify-authenticator] [data-amplify-router] {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  border: 0;
+  border-radius: 22px;
+  box-shadow: none;
   overflow: hidden;
 }
 
-/* ---------- phones: nav becomes a bottom tab bar ---------- */
+/* ---------- phones: nav becomes a floating tab bar ---------- */
 
 @media (max-width: 640px) {
   .topbar {
     padding: 10px 16px;
-    /* a blur here would trap the fixed tab bar inside the header */
-    backdrop-filter: none;
-    background: var(--surface);
   }
 
   .topbar .btn {
@@ -540,34 +660,53 @@ button:disabled {
 
   .nav {
     position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    left: 12px;
+    right: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom));
     z-index: 10;
     margin: 0;
-    justify-content: space-around;
-    padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
-    background: rgba(255, 255, 255, 0.96);
-    backdrop-filter: blur(10px);
-    border-top: 1px solid var(--border);
+    padding: 6px;
+    background: var(--deep);
+    border-radius: 999px;
   }
 
   .nav a {
     flex: 1;
     text-align: center;
     padding: 10px 6px;
-    font-size: 14px;
+    font-size: 15px;
   }
 
   .content {
-    padding: 18px 16px 110px;
+    padding: 22px 16px 120px;
+  }
+
+  .room-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .chat-input {
-    bottom: 84px;
+    bottom: 88px;
   }
 
-  .hero-number {
-    font-size: 72px;
+  /* keep the main button on screen when someone lands here from a QR code */
+  .hero {
+    gap: 6px;
+  }
+
+  .hero-door {
+    padding: 0 calc(50% - 16vw);
+    margin-bottom: 8px;
+  }
+
+  .hero h1 {
+    font-size: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .door-leaf,
+  .btn {
+    transition: none;
   }
 }

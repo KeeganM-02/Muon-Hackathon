@@ -63,12 +63,31 @@ function usePolling(load: () => Promise<void>) {
 
 /* ---------- small pieces ---------- */
 
+// The lock dial fills up as a room gets busier: empty = free, half = reserved soon,
+// three quarters = ending soon, full = in use.
 function StatusPill({ state }: { state: RoomState }) {
   return (
-    <span className={`pill tone-${state}`}>
-      <span className="dot" />
+    <span className="pill">
+      <span className={`dial dial-${state}`} />
       {LABEL[state]}
     </span>
+  );
+}
+
+// A drawn door. It stands ajar when the room is free, swings wide open when the room
+// is yours, and stays shut otherwise.
+function Door({ room, me }: { room: Room; me: string }) {
+  const pose = room.holder === me ? 'open' : room.state === 'free' ? 'ajar' : 'shut';
+  return (
+    <div className={`door pose-${pose}`} aria-hidden="true">
+      <div className="door-frame">
+        <div className="door-inside">{pose === 'open' ? 'Yours' : ''}</div>
+        <div className="door-leaf">
+          <span className="door-number">{room.room_id}</span>
+          <span className={`dial dial-${room.state}`} />
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -80,7 +99,7 @@ function AuthHeader() {
   return (
     <div className="auth-header">
       <div className="brand big">
-        <span className="brand-mark" />
+        <span className="dial dial-warn" />
         RoomLock
       </div>
       <p className="muted">Sign in to unlock your study room.</p>
@@ -118,12 +137,13 @@ function RoomsPage({ me }: { me: string }) {
       {!rooms && !error && <p className="muted">Loading rooms...</p>}
       <div className="room-grid">
         {rooms?.map((r) => (
-          <Link key={r.room_id} to={`/r/${r.room_id}`} className={`room-card tone-${r.state}`}>
-            <div className="room-card-top">
-              <span className="room-number">Room {r.room_id}</span>
-              <StatusPill state={r.state} />
+          <Link key={r.room_id} to={`/r/${r.room_id}`} className="room-tile">
+            <div className="door-stand">
+              <Door room={r} me={me} />
             </div>
-            <p className="room-card-detail">{describe(r, me)}</p>
+            <span className="room-number">Room {r.room_id}</span>
+            <StatusPill state={r.state} />
+            <span className="room-tile-detail">{describe(r, me)}</span>
           </Link>
         ))}
       </div>
@@ -220,9 +240,11 @@ function RoomPage({ me }: { me: string }) {
       <Link to="/" className="back">
         ← All rooms
       </Link>
-      <section className={`hero tone-${room.state}`}>
-        <p className="hero-kicker">Room</p>
-        <h1 className="hero-number">{room.room_id}</h1>
+      <section className="hero">
+        <div className="door-stand hero-door">
+          <Door room={room} me={me} />
+        </div>
+        <h1>Room {room.room_id}</h1>
         <StatusPill state={room.state} />
         <p className="hero-detail">
           {describe(room, me)}
@@ -409,7 +431,7 @@ export default function App() {
           <div className="shell">
             <header className="topbar">
               <Link to="/" className="brand">
-                <span className="brand-mark" />
+                <span className="dial dial-warn" />
                 RoomLock
               </Link>
               <nav className="nav">
