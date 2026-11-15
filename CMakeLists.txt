@@ -121,6 +121,7 @@ add_subdirectory(apps/lcd)
 add_subdirectory(apps/bl)
 
 add_subdirectory(apps/template)
+add_subdirectory(apps/espuart)
 add_subdirectory(apps/rf433)
 add_subdirectory(apps/colorbtn)
 add_subdirectory(apps/smoketest)

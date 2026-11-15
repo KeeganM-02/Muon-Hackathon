@@ -1,0 +1,9 @@
+build/
+sdkconfig
+sdkconfig.old
+.idea
+venv
+build*/
+.cache/
+sdkconfig.old
+active_sta/main/eap_credentials.h
