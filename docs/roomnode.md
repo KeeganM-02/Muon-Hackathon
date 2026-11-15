@@ -4,10 +4,15 @@ One fixed room, `room_id = 1`. The FreeWili OG is a **simple instruction
 follower**: it senses the room, reports it, and obeys what the backend tells it.
 All policy lives in the AWS API; the device is not allowed to invent state.
 
-Status: implemented and running on hardware. This document is the architecture —
-who owns what, what travels on which wire. The API-facing contract, timings and
-per-feature verification status live in `roomnode-api-handoff.md`; where the two
-disagree, that document is the newer one.
+Status: implemented and running on hardware. This document is the wire-level
+contract — who owns what, what travels on which wire, and the exact shapes of the
+payloads. The API-facing contract, timings and per-feature verification status
+live in `roomnode-api-handoff.md`; where the two disagree, that document is the
+newer one.
+
+For the reasoning rather than the wiring — the sensor filtering chain, why the
+debounce is asymmetric, what happens on each kind of failure, and the division of
+labour between the three CPUs — see `docs/roomnode-architecture.md`.
 
 ## Hardware map
 
