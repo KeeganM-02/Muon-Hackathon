@@ -230,6 +230,15 @@ room. Its job is to paint the frame it was handed, cheaply.
   paints its own background, and redraws only when the value it shows changes. A
   clear-and-repaint on each frame flickers the whole panel, which is worse than
   useless on a display people glance at from across the room.
+- **The panel says when it is guessing.** A status display whose link has died
+  looks exactly like a status display whose room is free, so the two facts that
+  can be stale — "the service said this" and "the sensor is answering" — each
+  own a piece of the panel: an amber band for a dead link (and `net up` expires
+  on fifteen seconds of silence, so the band cannot be defeated by a wire that
+  died mid-sentence), and `presence unknown` instead of a held verdict when the
+  sensor stops answering. The bottom hint is contextual for the same reason: it
+  names the action available in this state, and offers none while offline,
+  because End travels through the C6.
 - **The QR code is encoded only when the URL changes.** Encoding allocates two
   ~1 KB buffers and runs a Reed-Solomon pass; doing that per refresh on a machine
   with no FPU and a panel to feed is a visible stall.

@@ -279,9 +279,22 @@ static void paint_clock(const room_frame_t *f) {
     lcd_text_draw_padded(QR_X, HDR_Y, text, 24u, 1u, COL_DIM, COL_BG);
 }
 
+/* The state word, with the one case that is a process rather than a fact. An
+ * "unknown" state means either "asking" or "cannot ask", and those are
+ * different sentences to a person at the door: CONNECTING admits the node is
+ * offline, CHECKING admits the service has not answered yet. */
+static const char *status_word(const room_frame_t *f) {
+    const room_state_t st = (room_state_t)f->state;
+    if (st == ROOM_FREE || st == ROOM_HELD || st == ROOM_RESERVED ||
+        st == ROOM_WARN) {
+        return state_word(st);
+    }
+    return f->net_up ? "CHECKING" : "CONNECTING";
+}
+
 static void paint_state(const room_frame_t *f) {
     const room_state_t st = (room_state_t)f->state;
-    const char *word = state_word(st);
+    const char *word = status_word(f);
     unsigned scale = 5u;
     while (scale > 1u && strlen(word) * LCD_GLYPH_W * scale > LEFT_W - 16u) {
         scale--;
@@ -292,7 +305,18 @@ static void paint_state(const room_frame_t *f) {
 }
 
 static void paint_presence(const room_frame_t *f) {
-    lcd_text_draw_padded(8u, PRES_Y, f->present ? "present" : "nobody", 8u, 1u,
+    /* Main holds its last belief when the sensor stops answering rather than
+     * declaring the room empty. Rendering that held belief here would claim
+     * more than main is claiming, so the row states the truth instead: we do
+     * not know. The row is padded to 16 columns in both branches so the two
+     * sentences erase each other. */
+    if (!f->sensor_ok) {
+        lcd_text_draw_padded(8u, PRES_Y, "presence unknown", 16u, 1u,
+                             COL_AMBER, COL_BG);
+        lcd_text_draw_padded(8u, PRES_Y + 10u, "", 8u, 3u, COL_DIM, COL_BG);
+        return;
+    }
+    lcd_text_draw_padded(8u, PRES_Y, f->present ? "present" : "nobody", 16u, 1u,
                          COL_DIM, COL_BG);
     char dur[16];
     format_duration(f->elapsed_s, dur, sizeof dur);
@@ -342,6 +366,17 @@ static void paint_alert(const room_frame_t *f) {
         const uint16_t bar = (f->alert_level >= ROOM_ALERT_URGENT) ? COL_RED : COL_AMBER;
         st7789_fill_rect(0u, BAR_Y, ST7789_W, BAR_H, bar);
         draw_wrapped(8u, BAR_Y + 6u, f->alert, 24u, 2u, 2u, COL_BG, bar);
+    } else if (!f->net_up) {
+        /* Everything else on this panel is the last thing the service said, and
+         * this band is the only region that can admit it. It outranks the
+         * derived "ending soon" strip: that sentence is reconstructible from
+         * the big word and the countdown below it, whereas nothing else on
+         * screen warns that the panel may be out of date. A service-written
+         * alert still outranks both, because a human wrote it. */
+        st7789_fill_rect(0u, BAR_Y, ST7789_W, BAR_H, COL_AMBER);
+        lcd_text_draw(8u, BAR_Y + 4u, "No connection", 2u, COL_BG, COL_AMBER);
+        lcd_text_draw(8u, BAR_Y + 26u, "This may be out of date", 1u,
+                      COL_BG, COL_AMBER);
     } else if (f->state == ROOM_WARN) {
         st7789_fill_rect(0u, BAR_Y, ST7789_W, BAR_H, COL_AMBER);
         lcd_text_draw(8u, BAR_Y + 4u, "Ending soon", 2u, COL_BG, COL_AMBER);
@@ -379,9 +414,21 @@ static void format_flags(uint8_t status, char *out, size_t outsz) {
     }
 }
 
-static void paint_status_footer(void) {
-    lcd_text_draw_padded(8u, RAW_Y, "Y actions  B details", LEFT_COLS, 1u,
-                         COL_DIM, COL_BG);
+static void paint_status_footer(const room_frame_t *f) {
+    /* What the person standing here can actually do right now. The old fixed
+     * hint told them the buttons existed but never that one of them releases
+     * the room, which is the only thing most of them came to do. Nothing is
+     * offered while the link is down: End travels to the service through the
+     * C6, so with no link it is not a button, it is a lie. */
+    const char *hint = "Y actions  B details";
+    if (!f->net_up) {
+        hint = "B details";
+    } else if (f->state == ROOM_FREE) {
+        hint = "scan code to reserve";
+    } else if (f->state == ROOM_HELD || f->state == ROOM_WARN) {
+        hint = "Y actions to release";
+    }
+    lcd_text_draw_padded(8u, RAW_Y, hint, LEFT_COLS, 1u, COL_DIM, COL_BG);
     lcd_text_draw_padded(8u, FLAG_Y, "", LEFT_COLS, 1u, COL_DIM, COL_BG);
 }
 
@@ -791,10 +838,11 @@ static void apply_frame(const room_frame_t *f) {
     if (full || f->epoch / 60 != d->epoch / 60) {
         paint_clock(f);
     }
-    if (full || f->state != d->state) {
+    if (full || f->state != d->state || f->net_up != d->net_up) {
         paint_state(f);
     }
-    if (full || f->present != d->present || f->elapsed_s != d->elapsed_s) {
+    if (full || f->present != d->present || f->elapsed_s != d->elapsed_s ||
+        f->sensor_ok != d->sensor_ok) {
         paint_presence(f);
     }
     if (full || f->hold_left_s != d->hold_left_s || f->state != d->state) {
@@ -804,11 +852,11 @@ static void apply_frame(const room_frame_t *f) {
         paint_holder(f);
     }
     if (full || f->state != d->state || f->alert_level != d->alert_level ||
-        strcmp(f->alert, d->alert) != 0) {
+        strcmp(f->alert, d->alert) != 0 || f->net_up != d->net_up) {
         paint_alert(f);
     }
-    if (full) {
-        paint_status_footer();
+    if (full || f->state != d->state || f->net_up != d->net_up) {
+        paint_status_footer(f);
     }
     if (!full && strcmp(f->qr_url, d->qr_url) != 0) {
         paint_url(f);

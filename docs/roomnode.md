@@ -69,10 +69,28 @@ on the RP2040s, where a custom firmware is not going to reflash itself mid-demo.
 | `held` | blue `IN USE` + countdown to `expires_at` | locked |
 | `reserved` | amber `RESERVED`, then `check in within` + countdown to `next_res_start` | locked |
 | `warn` | red `ENDING` + countdown, double-beep on entry and at 5 s left | locked/unlocked per command |
-| absent/unknown | gray `UNKNOWN` | locked |
+| absent/unknown | gray `CHECKING` (link up) or `CONNECTING` (link down) | locked |
 
 While occupied the left column additionally shows elapsed `mm:ss` since
-presence began. Elapsed-on-display is local and monotonic: it starts when
+presence began.
+
+Three things on the panel are about honesty rather than state, because a status
+display is only useful if a person can tell when it is guessing:
+
+- With the link down, the full-width band says `No connection / This may be out
+  of date` in amber. It outranks the derived `Ending soon` strip, since that
+  sentence is reconstructible from the state word and countdown, while nothing
+  else on screen admits the panel may be stale. A service-written alert still
+  outranks both.
+- With the sensor not answering, the presence row reads `presence unknown`
+  instead of holding its last verdict, matching what main actually claims (it
+  holds the belief, it does not assert an empty room). `net up` also expires:
+  fifteen seconds of silence from the C6 turns it into `down`, so the band
+  cannot be defeated by a dead wire.
+- The bottom hint says what the buttons can do *here* -- `scan code to reserve`
+  when free, `Y actions to release` when held or ending, `B details` when
+  offline (End travels to the service through the C6, so with no link it is not
+  a button). Elapsed-on-display is local and monotonic: it starts when
 the sensor first sees a person, so it cannot be knocked out by a clock jump.
 
 `GET /rooms/1` returns `{room_id, state, holder?, expires_at?, next_res_start?}`

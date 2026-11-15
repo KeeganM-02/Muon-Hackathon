@@ -44,6 +44,9 @@ FWOG_WATCHDOG_DEFAULT();
 #define DISPLAY_PERIOD_MS    500u
 #define DISPLAY_FAST_MS      100u   /* while a presence timer is running */
 #define HB_PERIOD_MS         5000u
+/* The C6 speaks at least once a second -- a poll attempt, successful or not --
+ * so this much silence means the wire or the C6 itself has gone. */
+#define LINK_STALE_MS       15000u
 #define IO_APPLY_TRIES       20u
 #define IO_APPLY_RETRY_MS    50u
 
@@ -55,6 +58,11 @@ typedef struct {
     uint32_t confirm_done_ms; /* when confirmation last succeeded, 0 = never */
     bool     confirming;
     bool     sensor_ok;
+
+    /* Freshness of the C6 link: the last "net up" we heard must not outlive the
+     * evidence for it, or the panel advertises online while nothing updates. */
+    uint32_t last_c6_ms;
+    uint32_t last_rx_lines;
 
     /* The last position the service commanded, kept because the servo tests in
      * the exerciser overwrite it and the C6 only re-sends on a change. */
@@ -135,7 +143,11 @@ static void push_display(node_t *n, const esp_link_in_t *in) {
     f.version = ROOM_STATE_VERSION;
     f.state = in->status_valid ? (uint8_t)in->state : (uint8_t)ROOM_UNKNOWN;
     f.present = n->present ? 1u : 0u;
-    f.net_up = (in->net_valid && in->net_up) ? 1u : 0u;
+
+    const uint32_t now_ms = to_ms_since_boot(get_absolute_time());
+    const bool link_fresh = n->last_c6_ms != 0u &&
+                            now_ms - n->last_c6_ms < LINK_STALE_MS;
+    f.net_up = (in->net_valid && in->net_up && link_fresh) ? 1u : 0u;
     f.sensor_ok = n->sensor_ok ? 1u : 0u;
     f.alert_level = n->alert_level;
     f.tpresence = n->tpresence;
@@ -146,7 +158,6 @@ static void push_display(node_t *n, const esp_link_in_t *in) {
     snprintf(f.holder, sizeof f.holder, "%s", in->holder);
     snprintf(f.qr_url, sizeof f.qr_url, "%s", in->qr_url);
 
-    const uint32_t now_ms = to_ms_since_boot(get_absolute_time());
     if (n->present) {
         f.elapsed_s = (now_ms - n->present_since_ms) / 1000u;
     }
@@ -290,6 +301,13 @@ int main(void) {
         /* Drain the link every iteration: a status line that sits in the FIFO
          * while we sleep is a display that lags the room. */
         esp_link_poll(&in);
+
+        /* Any line at all is proof the C6 is alive; the absence of lines is the
+         * only evidence we will ever get that it is not. */
+        if (in.rx_lines != n.last_rx_lines) {
+            n.last_rx_lines = in.rx_lines;
+            n.last_c6_ms = now;
+        }
         poll_display_actions(&n);
 
         if (in.time_valid) {
